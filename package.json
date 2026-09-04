@@ -4,6 +4,7 @@
   "packageManager": "pnpm@11.25.0",
   "engines": { "node": ">=22" },
   "scripts": {
+    "check:blocky": "corepack pnpm --filter @scope402/api check:blocky",
     "dev": "corepack pnpm --filter @scope402/api dev",
     "build": "corepack pnpm --filter @scope402/api build",
     "start": "corepack pnpm --filter @scope402/api start",
