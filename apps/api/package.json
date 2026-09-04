@@ -3,15 +3,18 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "check:402": "tsx --env-file-if-exists=.env src/check-402.ts",
     "check:blocky": "tsx src/check-blocky.ts",
-    "dev": "tsx watch src/server.ts",
+    "dev": "tsx watch --env-file-if-exists=.env src/server.ts",
     "build": "tsc",
-    "start": "node dist/server.js",
+    "start": "node --env-file-if-exists=.env dist/server.js",
     "typecheck": "tsc --noEmit && tsc --project tsconfig.test.json",
     "test": "tsx --test test/*.test.ts"
   },
   "dependencies": {
     "@hono/node-server": "^2.1.1",
+    "@x402/core": "2.25.0",
+    "@x402/hedera": "2.25.0",
     "hono": "^4.13.5"
   },
   "devDependencies": {

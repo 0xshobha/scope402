@@ -2,3 +2,7 @@ packages:
   - apps/*
 allowBuilds:
   esbuild: true
+  protobufjs: true
+minimumReleaseAgeExclude:
+  - '@x402/core@2.25.0'
+  - '@x402/hedera@2.25.0'
