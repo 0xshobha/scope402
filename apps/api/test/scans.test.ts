@@ -44,8 +44,8 @@ test('never treats an arbitrary payment header as a paid scan', async () => {
     method: 'POST', headers: { 'Content-Type': 'application/json', 'PAYMENT-SIGNATURE': 'invalid' },
     body: JSON.stringify(request),
   })
-  assert.equal(response.status, 501)
-  assert.deepEqual(await response.json(), { error: 'PAYMENT_PROCESSING_UNAVAILABLE' })
+  assert.equal(response.status, 400)
+  assert.equal((await response.json()).error, 'PAYMENT_INVALID')
 })
 
 test('refuses to advertise payment without merchant configuration', async (t) => {

@@ -1,10 +1,13 @@
 import { createPublicKey } from 'node:crypto'
+import { isDeepStrictEqual } from 'node:util'
 import { Hono } from 'hono'
 import { bodyLimit } from 'hono/body-limit'
-import { encodePaymentRequiredHeader } from '@x402/core/http'
-import type { PaymentRequired } from '@x402/core/types'
+import { decodePaymentSignatureHeader, encodePaymentRequiredHeader, encodePaymentResponseHeader } from '@x402/core/http'
+import { PaymentPayloadV2Schema } from '@x402/core/schemas'
+import type { PaymentPayload, PaymentRequired } from '@x402/core/types'
 import { ExactHederaScheme } from '@x402/hedera/exact/server'
 import { getHederaSupport } from './blocky.js'
+import { hashscanUrl, PaymentError, settlePayment } from './settlement.js'
 
 export type ScanRequest = { repo_url: string; subject_pubkey: string }
 
@@ -70,8 +73,14 @@ scans.post('/', async (c) => {
   } catch (error) {
     return c.json({ error: 'INVALID_REQUEST', message: error instanceof Error ? error.message : 'Invalid JSON' }, 400)
   }
-  if (c.req.header('PAYMENT-SIGNATURE')) {
-    return c.json({ error: 'PAYMENT_PROCESSING_UNAVAILABLE' }, 501)
+  let payload: PaymentPayload | undefined
+  const signature = c.req.header('PAYMENT-SIGNATURE')
+  if (signature) {
+    try {
+      payload = PaymentPayloadV2Schema.parse(decodePaymentSignatureHeader(signature)) as PaymentPayload
+    } catch {
+      return c.json({ error: 'PAYMENT_INVALID', message: 'Invalid x402 v2 payment header' }, 400)
+    }
   }
   let config: ReturnType<typeof paymentConfig>
   try {
@@ -82,10 +91,27 @@ scans.post('/', async (c) => {
   try {
     const support = await getHederaSupport()
     const required = await paymentRequired(c.req.url, config, support)
+    if (payload) {
+      const terms = required.accepts[0]!
+      if (!isDeepStrictEqual(payload.accepted, terms) || payload.resource?.url !== c.req.url) {
+        return c.json({ error: 'PAYMENT_REQUIREMENTS_MISMATCH' }, 400)
+      }
+      const receipt = await settlePayment(payload, terms)
+      c.header('PAYMENT-RESPONSE', encodePaymentResponseHeader(receipt))
+      c.header('Cache-Control', 'no-store')
+      return c.json({ status: 'payment_settled', scan_status: 'not_started',
+        payer: receipt.payer, merchant: config.payTo, amount_tinybars: config.amount,
+        transaction: receipt.transaction, hashscan_url: hashscanUrl(receipt.transaction) })
+    }
     c.header('PAYMENT-REQUIRED', encodePaymentRequiredHeader(required))
     c.header('Cache-Control', 'no-store')
     return c.json(required, 402)
   } catch (error) {
+    if (error instanceof PaymentError) {
+      const status = error.code === 'PAYMENT_INVALID' ? 402 :
+        error.code === 'PAYMENT_ALREADY_ATTEMPTED' ? 409 : 502
+      return c.json({ error: error.code, message: error.message }, status)
+    }
     return c.json({ error: 'FACILITATOR_ERROR', message: error instanceof Error ? error.message : 'Discovery failed' }, 502)
   }
 })
