@@ -4,7 +4,7 @@ import { test } from 'node:test'
 import { decodePaymentRequiredHeader, encodePaymentRequiredHeader } from '@x402/core/http'
 import { PaymentRequiredV2Schema } from '@x402/core/schemas'
 import { app } from '../src/app.js'
-import { parseScanRequest, paymentConfig, paymentRequired, settledPaymentDetails } from '../src/scans.js'
+import { parseScanRequest, paymentConfig, paymentRequired, scanResourceUrl, settledPaymentDetails } from '../src/scans.js'
 
 const { publicKey } = generateKeyPairSync('ec', { namedCurve: 'prime256v1' })
 const request = {
@@ -87,4 +87,15 @@ test('reports settled quote terms instead of current merchant configuration', ()
   }, { payer: '0.0.22222', transaction: '0.0.67890@1700000000.123456789' })
   assert.equal(details.merchant, '0.0.11111')
   assert.equal(details.amount_tinybars, '70000')
+})
+
+test('uses the configured public origin behind a TLS proxy', (t) => {
+  const previous = process.env.AUDITLAB_URL
+  process.env.AUDITLAB_URL = 'https://scope402-auditlab.onrender.com'
+  t.after(() => {
+    if (previous === undefined) delete process.env.AUDITLAB_URL
+    else process.env.AUDITLAB_URL = previous
+  })
+  assert.equal(scanResourceUrl('http://scope402-auditlab.onrender.com/v1/scans'),
+    'https://scope402-auditlab.onrender.com/v1/scans')
 })

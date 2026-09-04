@@ -79,6 +79,10 @@ export function settledPaymentDetails(requirements: PaymentRequirements,
   }
 }
 
+export function scanResourceUrl(requestUrl: string) {
+  return new URL('/v1/scans', process.env.AUDITLAB_URL ?? requestUrl).href
+}
+
 export const scans = new Hono()
 scans.use('*', bodyLimit({ maxSize: 8192 }))
 scans.post('/', async (c) => {
@@ -118,8 +122,9 @@ scans.post('/', async (c) => {
       return c.json({ error: 'PAYMENT_NOT_CONFIGURED', message: (error as Error).message }, 503)
     }
     const support = await getHederaSupport()
-    const draft = await paymentRequired(c.req.url, config, support)
-    const quote = await createQuote(request.repo_url, request.subject_pubkey, c.req.url, draft.accepts[0]!)
+    const endpoint = scanResourceUrl(c.req.url)
+    const draft = await paymentRequired(endpoint, config, support)
+    const quote = await createQuote(request.repo_url, request.subject_pubkey, endpoint, draft.accepts[0]!)
     const required = { ...draft, resource: { ...draft.resource, url: quote.resourceUrl } }
     c.header('PAYMENT-REQUIRED', encodePaymentRequiredHeader(required))
     c.header('Cache-Control', 'no-store')
