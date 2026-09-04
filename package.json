@@ -10,6 +10,6 @@
     "build": "corepack pnpm -r build",
     "start": "corepack pnpm --filter @scope402/api start",
     "typecheck": "corepack pnpm -r typecheck",
-    "test": "corepack pnpm -r test"
+    "test": "corepack pnpm -r test && corepack pnpm --filter @scope402/api test:integration"
   }
 }

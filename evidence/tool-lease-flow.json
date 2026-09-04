@@ -1,0 +1,22 @@
+{
+  "verified_at": "2026-09-04T21:28:58Z",
+  "network": "hedera:testnet",
+  "transaction": "0.0.7162784@1788557277.672585579",
+  "hashscan_url": "https://hashscan.io/testnet/transaction/0.0.7162784-1788557277-672585579",
+  "mirror_result": "SUCCESS",
+  "payer": "0.0.8258066",
+  "merchant": "0.0.8258555",
+  "amount_tinybars": "100000",
+  "scan_id": "bc8f555e-4471-4242-a287-b62967c72b8d",
+  "lease_id": "ac5e8dc7-bd98-465a-ad6d-eac884e6458d",
+  "tool_ids": ["finding_details"],
+  "max_calls": 3,
+  "used_calls": 1,
+  "last_counter": 1,
+  "legitimate_invocation": "allowed",
+  "attack_tests": {
+    "wrong_subject_key": "SUBJECT_KEY_MISMATCH",
+    "replayed_counter": "REPLAY_DETECTED",
+    "server_expired_lease": "LEASE_EXPIRED"
+  }
+}

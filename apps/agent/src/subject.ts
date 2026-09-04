@@ -1,9 +1,10 @@
-import { createPrivateKey, createPublicKey, generateKeyPairSync } from 'node:crypto'
+import { createPrivateKey, createPublicKey, generateKeyPairSync, sign } from 'node:crypto'
 import { chmod, mkdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
+import { canonicalJson } from './canonical.js'
 
-export async function subjectPublicKey() {
+async function subjectKey() {
   const directory = join(homedir(), '.config', 'scope402')
   const file = join(directory, 'subject.pem')
   await mkdir(directory, { recursive: true, mode: 0o700 })
@@ -27,5 +28,20 @@ export async function subjectPublicKey() {
   if (key.asymmetricKeyType !== 'ec' || key.asymmetricKeyDetails?.namedCurve !== 'prime256v1') {
     throw new Error('Stored capability key must be P-256')
   }
-  return createPublicKey(key).export({ type: 'spki', format: 'der' }).toString('base64url')
+  return key
+}
+
+export async function subjectPublicKey() {
+  return createPublicKey(await subjectKey()).export({ type: 'spki', format: 'der' }).toString('base64url')
+}
+
+export async function signInvocation(invocation: object) {
+  const key = await subjectKey()
+  const subject_pubkey = createPublicKey(key).export({ type: 'spki', format: 'der' }).toString('base64url')
+  const header = Buffer.from(canonicalJson({ alg: 'ES256', subject_pubkey,
+    typ: 'scope402-invocation+jws' })).toString('base64url')
+  const payload = Buffer.from(canonicalJson(invocation)).toString('base64url')
+  const signature = sign('sha256', Buffer.from(`${header}.${payload}`),
+    { key, dsaEncoding: 'ieee-p1363' }).toString('base64url')
+  return `${header}.${payload}.${signature}`
 }

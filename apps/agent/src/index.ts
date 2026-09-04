@@ -1,8 +1,10 @@
+import { createHash } from 'node:crypto'
 import { decodePaymentRequiredHeader, decodePaymentResponseHeader, encodePaymentSignatureHeader } from '@x402/core/http'
 import { createClientHederaSigner, inspectHederaTransaction, PrivateKey } from '@x402/hedera'
 import { ExactHederaScheme } from '@x402/hedera/exact/client'
+import { canonicalJson } from './canonical.js'
 import { selectPayment } from './policy.js'
-import { subjectPublicKey } from './subject.js'
+import { signInvocation, subjectPublicKey } from './subject.js'
 
 async function run() {
   const payer = process.env.HEDERA_PAYER_ACCOUNT_ID
@@ -55,7 +57,23 @@ async function run() {
     throw new Error('API returned an invalid settlement receipt')
   }
   console.log(`Settled transaction: ${receipt.transaction}`)
-  console.log(JSON.stringify(await retry.json()))
+  const result = await retry.json() as { lease?: { token?: string; lease_id?: string } }
+  console.log(JSON.stringify(result))
+  if (!result.lease?.token || !result.lease.lease_id) throw new Error('Paid scan returned no ToolLease')
+  const args = { finding_id: 'missing-lockfile' }
+  const invocation = {
+    lease_id: result.lease.lease_id, tool_id: 'finding_details', counter: 1,
+    args_hash: createHash('sha256').update(canonicalJson(args)).digest('hex'),
+    issued_at: Math.floor(Date.now() / 1000),
+  }
+  const toolResponse = await fetch(new URL('/v1/tools/finding_details', url), {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ lease: result.lease.token, args, counter: 1,
+      signature: await signInvocation(invocation) }),
+    redirect: 'error', signal: AbortSignal.timeout(20_000),
+  })
+  if (!toolResponse.ok) throw new Error(`finding_details returned HTTP ${toolResponse.status}`)
+  console.log(`Tool result: ${JSON.stringify(await toolResponse.json())}`)
 }
 
 run().catch((error: unknown) => {

@@ -30,6 +30,18 @@ export async function initializeDatabase() {
       receipt jsonb,
       updated_at timestamptz NOT NULL DEFAULT now()
     );
+    CREATE TABLE IF NOT EXISTS tool_leases (
+      lease_id uuid PRIMARY KEY,
+      subject_pubkey text NOT NULL,
+      scan_id uuid NOT NULL,
+      hedera_tx_id text NOT NULL UNIQUE,
+      expires_at timestamptz NOT NULL,
+      max_calls integer NOT NULL CHECK (max_calls > 0),
+      used_calls integer NOT NULL DEFAULT 0 CHECK (used_calls >= 0),
+      last_counter integer NOT NULL DEFAULT 0 CHECK (last_counter >= 0),
+      revoked_at timestamptz,
+      findings jsonb NOT NULL
+    );
   `)
 }
 

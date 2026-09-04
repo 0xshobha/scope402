@@ -7,6 +7,7 @@ import type { PaymentPayload, PaymentRequired } from '@x402/core/types'
 import { ExactHederaScheme } from '@x402/hedera/exact/server'
 import { getHederaSupport } from './blocky.js'
 import { scanRepository } from './github.js'
+import { issueLease } from './leases.js'
 import { PaymentError } from './payment-error.js'
 import { assertQuotedPayment, createQuote, loadQuote } from './payments.js'
 import { hashscanUrl, settlePayment } from './settlement.js'
@@ -100,10 +101,11 @@ scans.post('/', async (c) => {
       c.header('PAYMENT-RESPONSE', encodePaymentResponseHeader(receipt))
       c.header('Cache-Control', 'no-store')
       const scan = await scanRepository(request.repo_url)
+      const lease = await issueLease(request.subject_pubkey, scan, receipt.transaction, quoteId)
       return c.json({ ...scan, status: 'complete', payment: {
         payer: receipt.payer, merchant: config.payTo, amount_tinybars: config.amount,
         transaction: receipt.transaction, hashscan_url: hashscanUrl(receipt.transaction),
-      } })
+      }, lease: { token: lease.token, ...lease.claims } })
     }
     const support = await getHederaSupport()
     const draft = await paymentRequired(c.req.url, config, support)

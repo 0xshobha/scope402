@@ -10,7 +10,8 @@
   },
   "dependencies": {
     "@x402/core": "2.25.0",
-    "@x402/hedera": "2.25.0"
+    "@x402/hedera": "2.25.0",
+    "canonicalize": "4.0.0"
   },
   "devDependencies": {
     "@types/node": "^22.20.1",

@@ -16,6 +16,9 @@ importers:
       '@x402/hedera':
         specifier: 2.25.0
         version: 2.25.0(ansi-regex@6.2.2)(ansi-styles@6.2.3)(bn.js@5.2.3)(debug@4.4.1(supports-color@8.1.1))(protobufjs@8.0.1)(react-native@0.87.1(@babel/core@7.29.7(supports-color@8.1.1))(react@19.2.8)(supports-color@8.1.1))(strip-ansi@7.1.2)(supports-color@8.1.1)
+      canonicalize:
+        specifier: 4.0.0
+        version: 4.0.0
     devDependencies:
       '@types/node':
         specifier: ^22.20.1
@@ -38,6 +41,9 @@ importers:
       '@x402/hedera':
         specifier: 2.25.0
         version: 2.25.0(ansi-regex@6.2.2)(ansi-styles@6.2.3)(bn.js@5.2.3)(debug@4.4.1(supports-color@8.1.1))(protobufjs@8.0.1)(react-native@0.87.1(@babel/core@7.29.7(supports-color@8.1.1))(react@19.2.8)(supports-color@8.1.1))(strip-ansi@7.1.2)(supports-color@8.1.1)
+      canonicalize:
+        specifier: 4.0.0
+        version: 4.0.0
       hono:
         specifier: ^4.13.5
         version: 4.13.5
@@ -708,6 +714,11 @@ packages:
 
   caniuse-lite@1.0.30001810:
     resolution: {integrity: sha512-TITQPUkaz+aVk5GL6NhOdwk1aEaNTSDPsGFWrTuhKGtjTF70jL/Oht2W4c6rXUe5fu7Ie19VIahAXHIIiWWNeg==}
+
+  canonicalize@4.0.0:
+    resolution: {integrity: sha512-FEdXzwWs+N3rZqEqpqleiY9M1A6IAf9oo1zHFABnLW9FcJ/jzsu+G/Ks3Hq3FglmPKe80GeGBw8ZXLEnwPB0vQ==}
+    engines: {node: '>=18'}
+    hasBin: true
 
   chalk@4.1.2:
     resolution: {integrity: sha512-oKnbhFyRIXpUuez8iBMmyEa4nbj4IOQyuhc/wy9kY7/WVPcwIO9VA668Pu8RkO7+0G76SLROeyw9CpQ061i4mA==}
@@ -2194,6 +2205,8 @@ snapshots:
   camelcase@6.3.0: {}
 
   caniuse-lite@1.0.30001810: {}
+
+  canonicalize@4.0.0: {}
 
   chalk@4.1.2:
     dependencies:
