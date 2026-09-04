@@ -1,0 +1,13 @@
+{
+  "name": "scope402",
+  "private": true,
+  "packageManager": "pnpm@11.25.0",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "dev": "corepack pnpm --filter @scope402/api dev",
+    "build": "corepack pnpm --filter @scope402/api build",
+    "start": "corepack pnpm --filter @scope402/api start",
+    "typecheck": "corepack pnpm --filter @scope402/api typecheck",
+    "test": "corepack pnpm --filter @scope402/api test"
+  }
+}
