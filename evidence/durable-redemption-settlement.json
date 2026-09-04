@@ -1,0 +1,16 @@
+{
+  "network": "hedera:testnet",
+  "facilitator": "https://api.testnet.blocky402.com",
+  "transaction": "0.0.7162784@1788556437.375467430",
+  "hashscan_url": "https://hashscan.io/testnet/transaction/0.0.7162784-1788556437-375467430",
+  "mirror_url": "https://testnet.mirrornode.hedera.com/api/v1/transactions/0.0.7162784-1788556437-375467430",
+  "result": "SUCCESS",
+  "transaction_type": "CRYPTOTRANSFER",
+  "payer": "0.0.8258066",
+  "merchant": "0.0.8258555",
+  "amount_tinybars": "100000",
+  "fee_payer": "0.0.7162784",
+  "network_fee_tinybars": "258527",
+  "database_redemption_status": "settled",
+  "scan_status": "not_started"
+}

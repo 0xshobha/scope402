@@ -1,5 +1,5 @@
 import { createPrivateKey, createPublicKey, generateKeyPairSync } from 'node:crypto'
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 
@@ -21,6 +21,8 @@ export async function subjectPublicKey() {
       pem = await readFile(file, 'utf8')
     }
   }
+  const mode = (await stat(file)).mode & 0o777
+  if (mode !== 0o600) await chmod(file, 0o600)
   const key = createPrivateKey(pem)
   if (key.asymmetricKeyType !== 'ec' || key.asymmetricKeyDetails?.namedCurve !== 'prime256v1') {
     throw new Error('Stored capability key must be P-256')

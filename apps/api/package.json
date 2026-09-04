@@ -9,16 +9,19 @@
     "build": "tsc",
     "start": "node --env-file-if-exists=.env dist/server.js",
     "typecheck": "tsc --noEmit && tsc --project tsconfig.test.json",
-    "test": "tsx --test test/*.test.ts"
+    "test": "tsx --test test/blocky.test.ts test/health.test.ts test/scans.test.ts test/settlement.test.ts",
+    "test:integration": "tsx --test test/*.integration.test.ts"
   },
   "dependencies": {
     "@hono/node-server": "^2.1.1",
     "@x402/core": "2.25.0",
     "@x402/hedera": "2.25.0",
-    "hono": "^4.13.5"
+    "hono": "^4.13.5",
+    "pg": "8.23.0"
   },
   "devDependencies": {
     "@types/node": "^22.20.1",
+    "@types/pg": "^8.23.1",
     "tsx": "^4.23.13",
     "typescript": "^7.0.2"
   }

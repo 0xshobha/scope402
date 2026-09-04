@@ -23,7 +23,7 @@ async function run() {
   if (response.status !== 402) throw new Error(`Expected 402; API returned HTTP ${response.status}`)
   const header = response.headers.get('PAYMENT-REQUIRED')
   if (!header) throw new Error('402 response has no PAYMENT-REQUIRED header')
-  const { required, terms } = selectPayment(decodePaymentRequiredHeader(header), url.href,
+  const { required, paymentUrl, terms } = selectPayment(decodePaymentRequiredHeader(header), url.href,
     merchant, payer, process.env.MAX_PAYMENT_TINYBARS ?? '100000')
   console.log(`402 received: ${terms.amount} tinybars from ${payer} to ${merchant}`)
   const signer = createClientHederaSigner(payer, PrivateKey.fromStringECDSA(secret), { network: 'hedera:testnet' })
@@ -36,7 +36,7 @@ async function run() {
     throw new Error('Signed transfer does not match the approved payment')
   }
   console.log('Hedera transfer signed; retrying with PAYMENT-SIGNATURE')
-  const retry = await fetch(url, {
+  const retry = await fetch(paymentUrl, {
     ...request,
     headers: { 'Content-Type': 'application/json', 'PAYMENT-SIGNATURE': encodePaymentSignatureHeader({
       x402Version: 2, accepted: terms, resource: required.resource, payload: signed.payload,

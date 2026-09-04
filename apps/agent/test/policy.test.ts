@@ -3,9 +3,10 @@ import { test } from 'node:test'
 import { selectPayment } from '../src/policy.js'
 
 const url = 'http://127.0.0.1:3000/v1/scans'
+const quoteUrl = `${url}?quote_id=123e4567-e89b-42d3-a456-426614174000`
 const terms = { scheme: 'exact', network: 'hedera:testnet', asset: '0.0.0',
   amount: '100000', payTo: '0.0.12345', maxTimeoutSeconds: 120, extra: { feePayer: '0.0.67890' } }
-const required = { x402Version: 2, resource: { url }, accepts: [terms] }
+const required = { x402Version: 2, resource: { url: quoteUrl }, accepts: [terms] }
 
 test('accepts the intended merchant and bounded testnet HBAR amount', () => {
   assert.deepEqual(selectPayment(required, url, '0.0.12345', '0.0.54321', '100000').terms, terms)
@@ -22,4 +23,6 @@ test('refuses changes to the network, asset, payee, or budget', () => {
 test('refuses self-payment and another resource', () => {
   assert.throws(() => selectPayment(required, url, '0.0.12345', '0.0.12345', '100000'))
   assert.throws(() => selectPayment(required, `${url}/other`, '0.0.12345', '0.0.54321', '100000'))
+  assert.throws(() => selectPayment({ ...required, resource: { url } }, url,
+    '0.0.12345', '0.0.54321', '100000'))
 })

@@ -1,11 +1,7 @@
 import type { PaymentPayload, PaymentRequirements, SettleResponse } from '@x402/core/types'
 import { inspectHederaTransaction } from '@x402/hedera'
-
-export class PaymentError extends Error {
-  constructor(readonly code: string, message: string) {
-    super(message)
-  }
-}
+import { PaymentError } from './payment-error.js'
+import { abandonVerification, beginRedemption, markSettlement, markSettlementAttempted } from './payments.js'
 
 function record(value: unknown): Record<string, unknown> {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
@@ -55,9 +51,7 @@ async function facilitator(path: 'verify' | 'settle', payload: PaymentPayload, r
   return response.json() as Promise<unknown>
 }
 
-const attempts = new Set<string>()
-
-export async function settlePayment(payload: PaymentPayload, requirements: PaymentRequirements) {
+export async function settlePayment(quoteId: string, payload: PaymentPayload, requirements: PaymentRequirements) {
   let transaction: string
   try {
     if (typeof payload.payload.transaction !== 'string') throw new Error('No transaction')
@@ -66,21 +60,27 @@ export async function settlePayment(payload: PaymentPayload, requirements: Payme
   } catch {
     throw new PaymentError('PAYMENT_INVALID', 'Invalid Hedera transfer payload')
   }
-  if (attempts.has(transaction)) throw new PaymentError('PAYMENT_ALREADY_ATTEMPTED', 'This transaction has already been submitted')
-  if (attempts.size >= 1000) throw new PaymentError('PAYMENT_CAPACITY_REACHED', 'Restart after reconciling previous payments')
-  attempts.add(transaction)
+  await beginRedemption(transaction, quoteId)
   let payer: string
   try {
     payer = verifiedPayer(await facilitator('verify', payload, requirements))
     if (payer === requirements.payTo) throw new PaymentError('PAYMENT_INVALID', 'Merchant cannot pay itself')
   } catch (error) {
-    attempts.delete(transaction)
+    await abandonVerification(transaction)
     throw error
   }
+  await markSettlementAttempted(transaction, payer)
   try {
-    return settlementReceipt(await facilitator('settle', payload, requirements), payer, transaction)
+    const raw = await facilitator('settle', payload, requirements)
+    const receipt = settlementReceipt(raw, payer, transaction)
+    await markSettlement(transaction, 'settled', receipt)
+    return receipt
   } catch (error) {
-    if (error instanceof PaymentError && error.code === 'SETTLEMENT_FAILED') throw error
+    if (error instanceof PaymentError && error.code === 'SETTLEMENT_FAILED') {
+      await markSettlement(transaction, 'settlement_failed', { error: error.message })
+      throw error
+    }
+    await markSettlement(transaction, 'settlement_unknown', { error: error instanceof Error ? error.message : 'Unknown error' })
     throw new PaymentError('SETTLEMENT_UNKNOWN', `Settlement was attempted for ${transaction}; check Hedera before starting another payment`)
   }
 }

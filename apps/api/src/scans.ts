@@ -1,5 +1,4 @@
 import { createPublicKey } from 'node:crypto'
-import { isDeepStrictEqual } from 'node:util'
 import { Hono } from 'hono'
 import { bodyLimit } from 'hono/body-limit'
 import { decodePaymentSignatureHeader, encodePaymentRequiredHeader, encodePaymentResponseHeader } from '@x402/core/http'
@@ -7,7 +6,9 @@ import { PaymentPayloadV2Schema } from '@x402/core/schemas'
 import type { PaymentPayload, PaymentRequired } from '@x402/core/types'
 import { ExactHederaScheme } from '@x402/hedera/exact/server'
 import { getHederaSupport } from './blocky.js'
-import { hashscanUrl, PaymentError, settlePayment } from './settlement.js'
+import { PaymentError } from './payment-error.js'
+import { assertQuotedPayment, createQuote, loadQuote } from './payments.js'
+import { hashscanUrl, settlePayment } from './settlement.js'
 
 export type ScanRequest = { repo_url: string; subject_pubkey: string }
 
@@ -68,8 +69,9 @@ export async function paymentRequired(
 export const scans = new Hono()
 scans.use('*', bodyLimit({ maxSize: 8192 }))
 scans.post('/', async (c) => {
+  let request: ScanRequest
   try {
-    parseScanRequest(await c.req.json())
+    request = parseScanRequest(await c.req.json())
   } catch (error) {
     return c.json({ error: 'INVALID_REQUEST', message: error instanceof Error ? error.message : 'Invalid JSON' }, 400)
   }
@@ -89,27 +91,28 @@ scans.post('/', async (c) => {
     return c.json({ error: 'PAYMENT_NOT_CONFIGURED', message: (error as Error).message }, 503)
   }
   try {
-    const support = await getHederaSupport()
-    const required = await paymentRequired(c.req.url, config, support)
     if (payload) {
-      const terms = required.accepts[0]!
-      if (!isDeepStrictEqual(payload.accepted, terms) || payload.resource?.url !== c.req.url) {
-        return c.json({ error: 'PAYMENT_REQUIREMENTS_MISMATCH' }, 400)
-      }
-      const receipt = await settlePayment(payload, terms)
+      const quoteId = c.req.query('quote_id') ?? ''
+      const quote = await loadQuote(quoteId, request.repo_url, request.subject_pubkey)
+      assertQuotedPayment(payload, quote)
+      const receipt = await settlePayment(quoteId, payload, quote.requirements)
       c.header('PAYMENT-RESPONSE', encodePaymentResponseHeader(receipt))
       c.header('Cache-Control', 'no-store')
       return c.json({ status: 'payment_settled', scan_status: 'not_started',
         payer: receipt.payer, merchant: config.payTo, amount_tinybars: config.amount,
         transaction: receipt.transaction, hashscan_url: hashscanUrl(receipt.transaction) })
     }
+    const support = await getHederaSupport()
+    const draft = await paymentRequired(c.req.url, config, support)
+    const quote = await createQuote(request.repo_url, request.subject_pubkey, c.req.url, draft.accepts[0]!)
+    const required = { ...draft, resource: { ...draft.resource, url: quote.resourceUrl } }
     c.header('PAYMENT-REQUIRED', encodePaymentRequiredHeader(required))
     c.header('Cache-Control', 'no-store')
     return c.json(required, 402)
   } catch (error) {
     if (error instanceof PaymentError) {
-      const status = error.code === 'PAYMENT_INVALID' ? 402 :
-        error.code === 'PAYMENT_ALREADY_ATTEMPTED' ? 409 : 502
+      const status = ['PAYMENT_INVALID', 'PAYMENT_REQUIREMENTS_MISMATCH', 'QUOTE_INVALID'].includes(error.code) ? 400 :
+        ['QUOTE_ALREADY_REDEEMED', 'QUOTE_EXPIRED'].includes(error.code) ? 409 : 502
       return c.json({ error: error.code, message: error.message }, status)
     }
     return c.json({ error: 'FACILITATOR_ERROR', message: error instanceof Error ? error.message : 'Discovery failed' }, 502)

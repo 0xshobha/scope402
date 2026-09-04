@@ -1,0 +1,54 @@
+import { Pool, type PoolClient } from 'pg'
+
+let pool: Pool | undefined
+
+export function database() {
+  const connectionString = process.env.DATABASE_URL
+  if (!connectionString) throw new Error('Set DATABASE_URL for durable payment state')
+  pool ??= new Pool({ connectionString, max: 10, connectionTimeoutMillis: 5_000 })
+  return pool
+}
+
+export async function initializeDatabase() {
+  await database().query(`
+    CREATE TABLE IF NOT EXISTS payment_quotes (
+      quote_id uuid PRIMARY KEY,
+      repo_url text NOT NULL,
+      subject_pubkey text NOT NULL,
+      resource_url text NOT NULL,
+      requirements jsonb NOT NULL,
+      expires_at timestamptz NOT NULL,
+      created_at timestamptz NOT NULL DEFAULT now()
+    );
+    CREATE TABLE IF NOT EXISTS payment_redemptions (
+      transaction_id text PRIMARY KEY,
+      quote_id uuid NOT NULL UNIQUE REFERENCES payment_quotes(quote_id),
+      status text NOT NULL CHECK (status IN (
+        'verifying', 'settlement_attempted', 'settled', 'settlement_failed', 'settlement_unknown'
+      )),
+      payer text,
+      receipt jsonb,
+      updated_at timestamptz NOT NULL DEFAULT now()
+    );
+  `)
+}
+
+export async function closeDatabase() {
+  await pool?.end()
+  pool = undefined
+}
+
+export async function transaction<T>(run: (client: PoolClient) => Promise<T>) {
+  const client = await database().connect()
+  try {
+    await client.query('BEGIN')
+    const result = await run(client)
+    await client.query('COMMIT')
+    return result
+  } catch (error) {
+    await client.query('ROLLBACK')
+    throw error
+  } finally {
+    client.release()
+  }
+}
