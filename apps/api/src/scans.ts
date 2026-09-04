@@ -6,6 +6,7 @@ import { PaymentPayloadV2Schema } from '@x402/core/schemas'
 import type { PaymentPayload, PaymentRequired } from '@x402/core/types'
 import { ExactHederaScheme } from '@x402/hedera/exact/server'
 import { getHederaSupport } from './blocky.js'
+import { scanRepository } from './github.js'
 import { PaymentError } from './payment-error.js'
 import { assertQuotedPayment, createQuote, loadQuote } from './payments.js'
 import { hashscanUrl, settlePayment } from './settlement.js'
@@ -98,9 +99,11 @@ scans.post('/', async (c) => {
       const receipt = await settlePayment(quoteId, payload, quote.requirements)
       c.header('PAYMENT-RESPONSE', encodePaymentResponseHeader(receipt))
       c.header('Cache-Control', 'no-store')
-      return c.json({ status: 'payment_settled', scan_status: 'not_started',
+      const scan = await scanRepository(request.repo_url)
+      return c.json({ ...scan, status: 'complete', payment: {
         payer: receipt.payer, merchant: config.payTo, amount_tinybars: config.amount,
-        transaction: receipt.transaction, hashscan_url: hashscanUrl(receipt.transaction) })
+        transaction: receipt.transaction, hashscan_url: hashscanUrl(receipt.transaction),
+      } })
     }
     const support = await getHederaSupport()
     const draft = await paymentRequired(c.req.url, config, support)
@@ -115,6 +118,7 @@ scans.post('/', async (c) => {
         ['QUOTE_ALREADY_REDEEMED', 'QUOTE_EXPIRED'].includes(error.code) ? 409 : 502
       return c.json({ error: error.code, message: error.message }, status)
     }
-    return c.json({ error: 'FACILITATOR_ERROR', message: error instanceof Error ? error.message : 'Discovery failed' }, 502)
+    return c.json({ error: payload ? 'SCAN_FAILED' : 'FACILITATOR_ERROR',
+      message: error instanceof Error ? error.message : 'Request failed' }, 502)
   }
 })

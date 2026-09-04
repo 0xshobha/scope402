@@ -1,0 +1,23 @@
+{
+  "verified_at": "2026-09-04T21:20:46Z",
+  "network": "hedera:testnet",
+  "facilitator": "https://api.testnet.blocky402.com",
+  "transaction": "0.0.7162784@1788556833.733860858",
+  "hashscan_url": "https://hashscan.io/testnet/transaction/0.0.7162784-1788556833-733860858",
+  "mirror_url": "https://testnet.mirrornode.hedera.com/api/v1/transactions/0.0.7162784-1788556833-733860858",
+  "result": "SUCCESS",
+  "transaction_type": "CRYPTOTRANSFER",
+  "payer": "0.0.8258066",
+  "merchant": "0.0.8258555",
+  "amount_tinybars": "100000",
+  "fee_payer": "0.0.7162784",
+  "network_fee_tinybars": "258527",
+  "scan_id": "def51128-87fb-453a-aa87-fd78ee219ca7",
+  "repo": "expressjs/express",
+  "commit_sha": "023767fe9872e029271df1418f73401bff20ff40",
+  "finding": {
+    "id": "missing-lockfile",
+    "severity": "medium",
+    "message": "No supported dependency lockfile exists at the repository root"
+  }
+}
