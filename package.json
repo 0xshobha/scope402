@@ -7,9 +7,9 @@
     "check:402": "corepack pnpm --filter @scope402/api check:402",
     "check:blocky": "corepack pnpm --filter @scope402/api check:blocky",
     "dev": "corepack pnpm --filter @scope402/api dev",
-    "build": "corepack pnpm --filter @scope402/api build",
+    "build": "corepack pnpm -r build",
     "start": "corepack pnpm --filter @scope402/api start",
-    "typecheck": "corepack pnpm --filter @scope402/api typecheck",
-    "test": "corepack pnpm --filter @scope402/api test"
+    "typecheck": "corepack pnpm -r typecheck",
+    "test": "corepack pnpm -r test"
   }
 }
