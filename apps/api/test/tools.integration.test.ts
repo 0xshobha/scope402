@@ -34,8 +34,8 @@ async function lease() {
 }
 
 function request(token: string, claims: LeaseClaims, counter: number,
-  key = subject.privateKey, pubkey = subjectPubkey) {
-  const args = { finding_id: 'missing-lockfile' }
+  key = subject.privateKey, pubkey = subjectPubkey, findingId = 'missing-lockfile') {
+  const args = { finding_id: findingId }
   const invocation: Invocation = {
     lease_id: claims.lease_id, tool_id: 'finding_details', counter,
     args_hash: hashArgs(args), issued_at: Math.floor(Date.now() / 1000),
@@ -92,6 +92,19 @@ test('enforces ToolLease subject, counter, and server expiry', async (t) => {
       [issued.claims.lease_id],
     )
     assert.deepEqual(state.rows[0], { used_calls: 1, last_counter: 1 })
+  })
+
+  await t.test('does not consume authority for an unknown finding', async () => {
+    const issued = await lease()
+    const response = await request(issued.token, issued.claims, 1,
+      subject.privateKey, subjectPubkey, 'does-not-exist')
+    assert.equal(response.status, 404)
+    assert.equal((await response.json()).error, 'FINDING_NOT_FOUND')
+    const state = await database().query(
+      `SELECT used_calls, last_counter FROM tool_leases WHERE lease_id = $1`,
+      [issued.claims.lease_id],
+    )
+    assert.deepEqual(state.rows[0], { used_calls: 0, last_counter: 0 })
   })
 
   await t.test('denies a lease expired on the server', async () => {

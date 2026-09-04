@@ -147,20 +147,21 @@ export async function issueLease(subjectPubkey: string, scan: { scan_id: string;
   return { token: signLease(claims, await serviceKey()), claims }
 }
 
-export async function authorizeInvocation(claims: LeaseClaims, invocation: Invocation) {
+export async function authorizeInvocation(claims: LeaseClaims, invocation: Invocation, findingId: string) {
   const result = await database().query(
     `UPDATE tool_leases SET used_calls = used_calls + 1, last_counter = $2
      WHERE lease_id = $1 AND subject_pubkey = $3 AND scan_id = $4 AND hedera_tx_id = $5
        AND revoked_at IS NULL AND expires_at > now() AND expires_at = to_timestamp($6)
        AND last_counter + 1 = $2 AND used_calls < max_calls
+       AND findings @> $7::jsonb
      RETURNING findings`,
     [claims.lease_id, invocation.counter, claims.subject_pubkey, claims.scan_id,
-      claims.hedera_tx_id, claims.exp],
+      claims.hedera_tx_id, claims.exp, JSON.stringify([{ id: findingId }])],
   )
   if (result.rowCount === 1) return result.rows[0].findings as unknown[]
   const state = await database().query(
     `SELECT subject_pubkey, expires_at <= now() OR revoked_at IS NOT NULL AS expired,
-            used_calls, max_calls, last_counter
+            used_calls, max_calls, last_counter, findings
      FROM tool_leases WHERE lease_id = $1`, [claims.lease_id])
   if (state.rowCount !== 1 || state.rows[0].subject_pubkey !== claims.subject_pubkey) {
     throw new LeaseError('SUBJECT_KEY_MISMATCH', 'Lease subject does not match stored state')
@@ -174,6 +175,9 @@ export async function authorizeInvocation(claims: LeaseClaims, invocation: Invoc
   if (Number(state.rows[0].used_calls) >= Number(state.rows[0].max_calls)) {
     throw new LeaseError('BUDGET_EXHAUSTED', 'Lease call budget is exhausted')
   }
+  const findingExists = (state.rows[0].findings as unknown[])
+    .some((value) => (value as Record<string, unknown>)?.id === findingId)
+  if (!findingExists) throw new LeaseError('FINDING_NOT_FOUND', 'Finding does not exist in this scan')
   throw new LeaseError('REPLAY_DETECTED', 'Invocation counter is not the next counter')
 }
 

@@ -31,13 +31,14 @@ tools.post('/finding_details', async (c) => {
     if (!Number.isSafeInteger(invocation.issued_at) || Math.abs(Date.now() / 1000 - invocation.issued_at) > 120) {
       throw new LeaseError('LEASE_REQUIRED', 'Invocation timestamp is invalid')
     }
-    const findings = await authorizeInvocation(claims, invocation)
+    const findings = await authorizeInvocation(claims, invocation, request.args.finding_id)
     const finding = findings.find((value) => (value as Record<string, unknown>)?.id === request.args.finding_id)
     if (!finding) return c.json({ error: 'FINDING_NOT_FOUND', message: 'Finding does not exist in this scan' }, 404)
     return c.json({ lease_id: claims.lease_id, counter: request.counter, finding })
   } catch (error) {
     if (error instanceof LeaseError) {
-      const status = error.code === 'LEASE_EXPIRED' ? 410 : error.code === 'LEASE_REQUIRED' ? 401 : 403
+      const status = error.code === 'LEASE_EXPIRED' ? 410 : error.code === 'FINDING_NOT_FOUND' ? 404 :
+        error.code === 'LEASE_REQUIRED' ? 401 : 403
       return c.json({ error: error.code, message: error.message }, status)
     }
     return c.json({ error: 'LEASE_REQUIRED', message: 'Invalid signed invocation' }, 401)

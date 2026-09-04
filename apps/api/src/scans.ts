@@ -3,7 +3,7 @@ import { Hono } from 'hono'
 import { bodyLimit } from 'hono/body-limit'
 import { decodePaymentSignatureHeader, encodePaymentRequiredHeader, encodePaymentResponseHeader } from '@x402/core/http'
 import { PaymentPayloadV2Schema } from '@x402/core/schemas'
-import type { PaymentPayload, PaymentRequired } from '@x402/core/types'
+import type { PaymentPayload, PaymentRequired, PaymentRequirements } from '@x402/core/types'
 import { ExactHederaScheme } from '@x402/hedera/exact/server'
 import { getHederaSupport } from './blocky.js'
 import { scanRepository } from './github.js'
@@ -68,6 +68,17 @@ export async function paymentRequired(
   }
 }
 
+export function settledPaymentDetails(requirements: PaymentRequirements,
+  receipt: { payer?: string; transaction: string }) {
+  return {
+    payer: receipt.payer,
+    merchant: requirements.payTo,
+    amount_tinybars: requirements.amount,
+    transaction: receipt.transaction,
+    hashscan_url: hashscanUrl(receipt.transaction),
+  }
+}
+
 export const scans = new Hono()
 scans.use('*', bodyLimit({ maxSize: 8192 }))
 scans.post('/', async (c) => {
@@ -86,12 +97,6 @@ scans.post('/', async (c) => {
       return c.json({ error: 'PAYMENT_INVALID', message: 'Invalid x402 v2 payment header' }, 400)
     }
   }
-  let config: ReturnType<typeof paymentConfig>
-  try {
-    config = paymentConfig()
-  } catch (error) {
-    return c.json({ error: 'PAYMENT_NOT_CONFIGURED', message: (error as Error).message }, 503)
-  }
   try {
     if (payload) {
       const quoteId = c.req.query('quote_id') ?? ''
@@ -102,10 +107,15 @@ scans.post('/', async (c) => {
       c.header('Cache-Control', 'no-store')
       const scan = await scanRepository(request.repo_url)
       const lease = await issueLease(request.subject_pubkey, scan, receipt.transaction, quoteId)
-      return c.json({ ...scan, status: 'complete', payment: {
-        payer: receipt.payer, merchant: config.payTo, amount_tinybars: config.amount,
-        transaction: receipt.transaction, hashscan_url: hashscanUrl(receipt.transaction),
-      }, lease: { token: lease.token, ...lease.claims } })
+      return c.json({ ...scan, status: 'complete',
+        payment: settledPaymentDetails(quote.requirements, receipt),
+        lease: { token: lease.token, ...lease.claims } })
+    }
+    let config: ReturnType<typeof paymentConfig>
+    try {
+      config = paymentConfig()
+    } catch (error) {
+      return c.json({ error: 'PAYMENT_NOT_CONFIGURED', message: (error as Error).message }, 503)
     }
     const support = await getHederaSupport()
     const draft = await paymentRequired(c.req.url, config, support)

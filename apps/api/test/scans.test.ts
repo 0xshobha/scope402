@@ -4,7 +4,7 @@ import { test } from 'node:test'
 import { decodePaymentRequiredHeader, encodePaymentRequiredHeader } from '@x402/core/http'
 import { PaymentRequiredV2Schema } from '@x402/core/schemas'
 import { app } from '../src/app.js'
-import { parseScanRequest, paymentConfig, paymentRequired } from '../src/scans.js'
+import { parseScanRequest, paymentConfig, paymentRequired, settledPaymentDetails } from '../src/scans.js'
 
 const { publicKey } = generateKeyPairSync('ec', { namedCurve: 'prime256v1' })
 const request = {
@@ -78,4 +78,13 @@ test('rejects invalid tinybar prices', (t) => {
     process.env.SCAN_PRICE_TINYBARS = amount
     assert.throws(paymentConfig, /SCAN_PRICE_TINYBARS/)
   }
+})
+
+test('reports settled quote terms instead of current merchant configuration', () => {
+  const details = settledPaymentDetails({
+    scheme: 'exact', network: 'hedera:testnet', asset: '0.0.0',
+    amount: '70000', payTo: '0.0.11111', maxTimeoutSeconds: 120, extra: { feePayer: '0.0.67890' },
+  }, { payer: '0.0.22222', transaction: '0.0.67890@1700000000.123456789' })
+  assert.equal(details.merchant, '0.0.11111')
+  assert.equal(details.amount_tinybars, '70000')
 })
