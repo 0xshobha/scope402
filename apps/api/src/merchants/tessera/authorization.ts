@@ -19,9 +19,11 @@ export type PlacePixelArgs = {
 
 export type TesseraLeaseClaims = BaseLeaseClaims & {
   tool_ids: ['place_pixel']
-  max_calls: 12
+  max_calls: number
   resource: CanvasRegionResource
   policy_hash: string
+  root_lease_id: string
+  parent_lease_id?: string
 }
 
 export async function verifyTesseraServiceLease(token: string): Promise<TesseraLeaseClaims> {
@@ -36,10 +38,14 @@ export async function verifyTesseraServiceLease(token: string): Promise<TesseraL
     process.env.AUDITLAB_URL ?? 'http://127.0.0.1:3000').href
   const catalogueHash = createHash('sha256')
     .update(canonicalJson(['place_pixel'])).digest('hex')
-  if (claims.max_calls !== 12 || claims.tool_ids.length !== 1 ||
+  const validLineage = claims.parent_lease_id === undefined ?
+    claims.root_lease_id === claims.lease_id :
+    typeof claims.parent_lease_id === 'string' && claims.root_lease_id !== claims.lease_id
+  if (!Number.isSafeInteger(claims.max_calls) || claims.max_calls < 1 || claims.max_calls > 12 ||
+      claims.tool_ids.length !== 1 ||
       claims.tool_ids[0] !== 'place_pixel' || claims.aud !== audience ||
       claims.catalogue_hash !== catalogueHash ||
-      !/^sha256:[0-9a-f]{64}$/.test(claims.policy_hash ?? '')) {
+      !/^sha256:[0-9a-f]{64}$/.test(claims.policy_hash ?? '') || !validLineage) {
     throw new LeaseError('LEASE_REQUIRED', 'Tessera lease claims are invalid')
   }
   return { ...claims, resource, policy_hash: claims.policy_hash! } as TesseraLeaseClaims
@@ -53,7 +59,8 @@ export async function authorizeTesseraPixel(claims: TesseraLeaseClaims,
 
 const tesseraPixelAdapter = {
   authorizeResourceAction: async (_client: TransactionClient,
-    context: { state: { merchantId?: string; resource?: unknown; maxCalls: number; usedCalls: number }
+    context: { state: { merchantId?: string; resource?: unknown; maxCalls: number
+      usedCalls: number; reservedCalls: number }
       args: PlacePixelArgs }) => {
     if (context.state.merchantId !== TESSERA_MERCHANT_ID) {
       throw new LeaseError('LEASE_REQUIRED', 'Capability belongs to another merchant')
@@ -66,7 +73,8 @@ const tesseraPixelAdapter = {
       canvasId: context.args.canvas_id, x: context.args.x, y: context.args.y,
     })
     return { point, color: context.args.color,
-      remainingCalls: context.state.maxCalls - context.state.usedCalls - 1 }
+      remainingCalls: context.state.maxCalls - context.state.usedCalls -
+        context.state.reservedCalls - 1 }
   },
   commitBusinessMutation: async (client: TransactionClient,
     context: { state: { leaseId: string } }, authorized: {

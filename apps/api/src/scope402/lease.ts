@@ -16,6 +16,8 @@ export type BaseLeaseClaims = {
   hedera_tx_id: string
   policy_hash?: string
   resource?: Scope402Resource
+  parent_lease_id?: string
+  root_lease_id?: string
 }
 
 export const encodeJwsPart = (value: string | Buffer) => Buffer.from(value).toString('base64url')
@@ -77,6 +79,8 @@ export function verifyLease(token: string, key: KeyObject): BaseLeaseClaims {
       !Number.isSafeInteger(value.max_calls) || Number(value.max_calls) < 1 ||
       !Number.isSafeInteger(value.exp) || typeof value.offer_id !== 'string' ||
       typeof value.hedera_tx_id !== 'string' ||
+      (value.parent_lease_id !== undefined && typeof value.parent_lease_id !== 'string') ||
+      (value.root_lease_id !== undefined && typeof value.root_lease_id !== 'string') ||
       (value.policy_hash !== undefined && !/^sha256:[0-9a-f]{64}$/.test(value.policy_hash)) ||
       (value.resource !== undefined && !isScope402Resource(value.resource))) {
     throw new LeaseError('LEASE_REQUIRED', 'Lease claims are invalid')

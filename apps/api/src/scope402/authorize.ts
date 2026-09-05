@@ -46,6 +46,9 @@ export async function authorizeAndCommitInTransaction<Args, Authorized, Result>(
   if (state.hederaTransactionId !== claims.hedera_tx_id) {
     throw new LeaseError('LEASE_REQUIRED', 'Lease payment transaction does not match stored state')
   }
+  if (state.parentLeaseId !== claims.parent_lease_id || state.rootLeaseId !== claims.root_lease_id) {
+    throw new LeaseError('LEASE_REQUIRED', 'Lease delegation lineage does not match stored state')
+  }
   const legacyUnscoped = state.formatVersion === undefined
   if (legacyUnscoped && (claims.resource !== undefined || !options.allowLegacyUnscopedState)) {
     throw new LeaseError('LEASE_REQUIRED', 'Lease has no persisted resource policy')
@@ -59,7 +62,7 @@ export async function authorizeAndCommitInTransaction<Args, Authorized, Result>(
   if (state.formatVersion === 2 && state.paymentQuoteId !== claims.offer_id) {
     throw new LeaseError('LEASE_REQUIRED', 'Lease payment lineage does not match stored state')
   }
-  if (state.expired || claims.exp <= Math.floor(Date.now() / 1000)) {
+  if (state.expired || state.rootExpired || claims.exp <= Math.floor(Date.now() / 1000)) {
     throw new LeaseError('LEASE_EXPIRED', 'Lease has expired')
   }
   if (state.expiresAt !== claims.exp || state.maxCalls !== claims.max_calls) {
@@ -68,11 +71,12 @@ export async function authorizeAndCommitInTransaction<Args, Authorized, Result>(
   if (invocation.counter <= state.lastCounter || invocation.counter !== state.lastCounter + 1) {
     throw new LeaseError('REPLAY_DETECTED', 'Invocation counter was already used')
   }
-  if (state.usedCalls >= state.maxCalls) {
+  if (state.usedCalls + state.reservedCalls >= state.maxCalls) {
     throw new LeaseError('BUDGET_EXHAUSTED', 'Lease call budget is exhausted')
   }
   const context = { claims, invocation, args, state }
   const authorized = await adapter.authorizeResourceAction(client, context)
+  const result = await adapter.commitBusinessMutation(client, context, authorized)
   const consumed = await consumeCapability(client, state, invocation.counter)
   if (consumed.kind === 'expired') {
     throw new LeaseError('LEASE_EXPIRED', 'Lease expired before the operation committed')
@@ -86,7 +90,7 @@ export async function authorizeAndCommitInTransaction<Args, Authorized, Result>(
   if (consumed.kind !== 'consumed') {
     throw new LeaseError('LEASE_REQUIRED', 'Lease state changed before the operation committed')
   }
-  return adapter.commitBusinessMutation(client, context, authorized)
+  return result
 }
 
 export type { LockedCapabilityState } from './store.js'

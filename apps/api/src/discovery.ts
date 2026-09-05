@@ -10,6 +10,7 @@ export const auditLabDiscovery = {
   },
   authorization: {
     scheme: 'scope402-tool-lease',
+    delegation: { method: 'POST', path_template: '/v1/leases/{lease_id}/delegations' },
     tools: [
       { id: 'finding_details', method: 'POST', path: '/v1/tools/finding_details' },
       { id: 'place_pixel', method: 'POST', path: '/v1/tools/place_pixel' },

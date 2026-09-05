@@ -1,5 +1,6 @@
 import { Hono } from 'hono'
 import { auditLabDiscovery } from './discovery.js'
+import { delegations } from './delegations.js'
 import { leaseControls } from './lease-controls.js'
 import { scans } from './scans.js'
 import { plots } from './plots.js'
@@ -15,6 +16,7 @@ app.get('/.well-known/scope402', (c) => {
   return c.json(auditLabDiscovery)
 })
 app.route('/v1/leases', leaseControls)
+app.route('/v1/leases', delegations)
 app.route('/v1/scans', scans)
 app.route('/v1/plots', plots)
 app.route('/v1/canvas', tesseraCanvas)

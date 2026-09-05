@@ -114,6 +114,19 @@ export async function initializeDatabase() {
     ALTER TABLE tool_leases ALTER COLUMN findings SET DEFAULT '[]'::jsonb;
     ALTER TABLE tool_leases ADD COLUMN IF NOT EXISTS payment_quote_id uuid REFERENCES payment_quotes(quote_id);
     ALTER TABLE tool_leases ADD COLUMN IF NOT EXISTS merchant_id text;
+    ALTER TABLE tool_leases ADD COLUMN IF NOT EXISTS parent_lease_id uuid REFERENCES tool_leases(lease_id);
+    ALTER TABLE tool_leases ADD COLUMN IF NOT EXISTS root_lease_id uuid REFERENCES tool_leases(lease_id);
+    ALTER TABLE tool_leases ADD COLUMN IF NOT EXISTS reserved_calls integer NOT NULL DEFAULT 0;
+    ALTER TABLE tool_leases ADD COLUMN IF NOT EXISTS last_delegation_counter integer NOT NULL DEFAULT 0;
+    ALTER TABLE tool_leases DROP CONSTRAINT IF EXISTS tool_leases_hedera_tx_id_key;
+    ALTER TABLE tool_leases DROP CONSTRAINT IF EXISTS tool_leases_reserved_calls_check;
+    ALTER TABLE tool_leases ADD CONSTRAINT tool_leases_reserved_calls_check
+      CHECK (reserved_calls >= 0 AND used_calls + reserved_calls <= max_calls);
+    ALTER TABLE tool_leases DROP CONSTRAINT IF EXISTS tool_leases_last_delegation_counter_check;
+    ALTER TABLE tool_leases ADD CONSTRAINT tool_leases_last_delegation_counter_check
+      CHECK (last_delegation_counter >= 0);
+    CREATE UNIQUE INDEX IF NOT EXISTS tool_leases_root_hedera_tx_id_key
+      ON tool_leases (hedera_tx_id) WHERE parent_lease_id IS NULL;
     CREATE TABLE IF NOT EXISTS tessera_pixels (
       canvas_id text NOT NULL CHECK (canvas_id = 'main'),
       x integer NOT NULL CHECK (x >= 0 AND x < 32),
