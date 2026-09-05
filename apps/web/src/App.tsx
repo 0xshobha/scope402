@@ -4,6 +4,15 @@ import { loadLiveState, publicApiUrl, type LiveState } from './api.js'
 
 const states = ['READY', 'PAYMENT REQUIRED', 'AGENT ACTION', 'SETTLED', 'SCAN COMPLETE', 'LEASE ACTIVE']
 
+const denials = [
+  { number: '01', label: 'STOLEN LEASE', status: '403', code: 'SUBJECT_KEY_MISMATCH',
+    copy: 'The lease is bound to the payer agent’s P-256 key. Possession of the token is not enough.' },
+  { number: '02', label: 'REPLAYED CALL', status: '403', code: 'REPLAY_DETECTED',
+    copy: 'Each signed invocation advances one atomic counter. The same request cannot spend authority twice.' },
+  { number: '03', label: 'EXPIRED AUTHORITY', status: '410', code: 'LEASE_EXPIRED',
+    copy: 'The server enforces expiry from persisted state. A valid signature cannot revive a dead lease.' },
+]
+
 function StatusRail({ live }: { live: LiveState }) {
   const discovery = live.discovery
   return <div className="proof-strip" aria-label="Live Scope402 service status">
@@ -33,6 +42,10 @@ export function App() {
   return <main>
     <header className="site-header">
       <a className="brand" href="#top">SCOPE<span>402</span></a>
+      <nav aria-label="Primary navigation">
+        <a href="#mechanism">MECHANISM</a>
+        <a href="#denials">DENIALS</a>
+      </nav>
       <div className="mode"><span className={`status-dot ${live.state}`} /> PUBLIC API</div>
     </header>
 
@@ -43,13 +56,14 @@ export function App() {
       <p className="lede">A real HBAR payment buys useful work. Scope402 turns that purchase into narrow,
         key-bound authority that expires.</p>
       <div className="hero-actions">
-        <a className="button primary" href="#mechanism">SEE THE MECHANISM</a>
+        <a className="button primary" href="#proof">EXPLORE THE LIVE SYSTEM</a>
         <a className="button" href={`${publicApiUrl}/.well-known/scope402`}
-          target="_blank" rel="noreferrer">OPEN DISCOVERY ↗</a>
+          target="_blank" rel="noreferrer">READ LIVE CONTRACT <span aria-hidden="true">↗</span></a>
       </div>
+      <div className="hero-index mono" aria-hidden="true"><span>PAY</span><span>WORK</span><span>AUTHORIZE</span></div>
     </section>
 
-    <StatusRail live={live} />
+    <div id="proof"><StatusRail live={live} /></div>
 
     <section className="contrast" id="mechanism">
       <article className="problem-card">
@@ -76,6 +90,39 @@ export function App() {
       <StateRail />
     </section>
 
+    <section className="purchase-section">
+      <div className="purchase-intro">
+        <span className="section-label">WHAT THE PAYMENT BINDS</span>
+        <h2>A priced snapshot.<br/>Not a moving target.</h2>
+        <p>The server-persisted x402 quote binds the repository, exact commit, metered workload,
+          payer subject, merchant, and amount before the agent signs.</p>
+      </div>
+      <div className="meter-card">
+        <div className="meter-head"><span className="section-label">BOUNDED METER</span><strong>ROOT FILES</strong></div>
+        <div className="formula mono"><span>BASE</span><b>+</b><span>UNIT × ROOT FILES</span><b>≤</b><span>CAP</span></div>
+        <div className="binding-list mono">
+          <span>REPOSITORY</span><strong>owner / repo</strong>
+          <span>COMMIT</span><strong>immutable SHA</strong>
+          <span>SUBJECT</span><strong>P-256 fingerprint</strong>
+          <span>PAYMENT</span><strong>HBAR tinybars</strong>
+        </div>
+      </div>
+    </section>
+
+    <section className="denial-section" id="denials">
+      <div className="section-heading"><span className="section-label">THE PROOF IS IN THE NO</span>
+        <h2>Payment succeeds.<br/>The attacks still fail.</h2></div>
+      <div className="denial-grid">
+        {denials.map((denial, index) => <motion.article key={denial.code}
+          initial={{ opacity: 0, y: 16 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}
+          transition={{ delay: index * 0.08, duration: 0.24 }}>
+          <div className="denial-top"><span className="mono">{denial.number}</span><span>{denial.label}</span></div>
+          <div className="denial-code"><strong className="mono">{denial.status}</strong><code>{denial.code}</code></div>
+          <p>{denial.copy}</p>
+        </motion.article>)}
+      </div>
+    </section>
+
     <section className="custody-section">
       <div className="section-heading"><span className="section-label">WHO HOLDS WHAT</span>
         <h2>Keys stay out of the browser.</h2></div>
@@ -93,7 +140,8 @@ export function App() {
         and one lease-protected follow-up tool. No browser keys. No smart contract. No fake settlement.</p>
     </section>
 
-    <footer><span>Scope402 · AuditLab</span><a href={`${publicApiUrl}/health`} target="_blank" rel="noreferrer">API HEALTH ↗</a>
+    <footer><span>Scope402 · AuditLab</span><a href="https://github.com/0xshobha/scope402" target="_blank" rel="noreferrer">SOURCE ↗</a>
+      <a href={`${publicApiUrl}/health`} target="_blank" rel="noreferrer">API HEALTH ↗</a>
       <a href={`${publicApiUrl}/.well-known/scope402`} target="_blank" rel="noreferrer">DISCOVERY ↗</a></footer>
   </main>
 }
