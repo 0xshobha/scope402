@@ -39,6 +39,7 @@ The browser is not trusted with either the Hedera payer key or the subject priva
 - Blocky402 discovery, verification, and Hedera testnet settlement
 - native HBAR payment with distinct payer and merchant accounts
 - durable quote and transaction replay protection
+- resumable paid scan fulfillment without a second settlement
 - public GitHub commit resolution and one bounded hygiene check
 - compact ES256 ToolLease bound to the payer agent's P-256 subject key
 - five-minute expiry and three-call budget
@@ -124,7 +125,7 @@ corepack pnpm build
 - one deterministic repository check and one follow-up tool
 - fixed bootstrap price; workload metering is not implemented yet
 - API is public; the payer agent remains local so its keys remain outside the service
-- settlement is durable, but a post-settlement GitHub failure is not yet resumable
+- completed paid retries return the original scan and ToolLease instead of granting fresh authority
 - no HCS anchoring, Agent Kit plugin, browser UI, or additional sponsor integration yet
 
 ## AI assistance

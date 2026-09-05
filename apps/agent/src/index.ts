@@ -38,18 +38,26 @@ async function run() {
     throw new Error('Signed transfer does not match the approved payment')
   }
   console.log('Hedera transfer signed; retrying with PAYMENT-SIGNATURE')
-  const retry = await fetch(paymentUrl, {
-    ...request,
-    headers: { 'Content-Type': 'application/json', 'PAYMENT-SIGNATURE': encodePaymentSignatureHeader({
-      x402Version: 2, accepted: terms, resource: required.resource, payload: signed.payload,
-    }) },
-    signal: AbortSignal.timeout(60_000),
+  const paymentSignature = encodePaymentSignatureHeader({
+    x402Version: 2, accepted: terms, resource: required.resource, payload: signed.payload,
   })
-  if (!retry.ok) {
+  let retry: Response | undefined
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    retry = await fetch(paymentUrl, {
+      ...request,
+      headers: { 'Content-Type': 'application/json', 'PAYMENT-SIGNATURE': paymentSignature },
+      signal: AbortSignal.timeout(60_000),
+    })
+    if (retry.ok) break
     const failure: unknown = await retry.json().catch(() => null)
     const code = failure && typeof failure === 'object' && 'error' in failure ? String(failure.error) : 'UNKNOWN'
-    throw new Error(`Paid retry returned HTTP ${retry.status}: ${code}`)
+    if (!['SCAN_RETRYABLE', 'SCAN_IN_PROGRESS'].includes(code) || attempt === 3) {
+      throw new Error(`Paid retry returned HTTP ${retry.status}: ${code}`)
+    }
+    console.log(`Paid scan is recoverable (${code}); retrying the same payment`)
+    await new Promise((resolve) => setTimeout(resolve, 2_000))
   }
+  if (!retry?.ok) throw new Error('Paid scan recovery did not complete')
   const receiptHeader = retry.headers.get('PAYMENT-RESPONSE')
   if (!receiptHeader) throw new Error('API returned success without PAYMENT-RESPONSE')
   const receipt = decodePaymentResponseHeader(receiptHeader)

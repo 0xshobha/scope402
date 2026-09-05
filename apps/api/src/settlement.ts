@@ -27,6 +27,17 @@ export function hashscanUrl(transaction: string): string {
   return `https://hashscan.io/testnet/transaction/${parts[1]}-${parts[2]}-${parts[3]}`
 }
 
+export function paymentTransactionId(payload: PaymentPayload) {
+  try {
+    if (typeof payload.payload.transaction !== 'string') throw new Error('No transaction')
+    const transaction = inspectHederaTransaction(payload.payload.transaction).transactionId
+    hashscanUrl(transaction)
+    return transaction
+  } catch {
+    throw new PaymentError('PAYMENT_INVALID', 'Invalid Hedera transfer payload')
+  }
+}
+
 export function settlementReceipt(value: unknown, payer: string, transaction: string): SettleResponse {
   const body = record(value)
   if (body.success !== true) {
@@ -52,14 +63,7 @@ async function facilitator(path: 'verify' | 'settle', payload: PaymentPayload, r
 }
 
 export async function settlePayment(quoteId: string, payload: PaymentPayload, requirements: PaymentRequirements) {
-  let transaction: string
-  try {
-    if (typeof payload.payload.transaction !== 'string') throw new Error('No transaction')
-    transaction = inspectHederaTransaction(payload.payload.transaction).transactionId
-    hashscanUrl(transaction)
-  } catch {
-    throw new PaymentError('PAYMENT_INVALID', 'Invalid Hedera transfer payload')
-  }
+  const transaction = paymentTransactionId(payload)
   await beginRedemption(transaction, quoteId)
   let payer: string
   try {

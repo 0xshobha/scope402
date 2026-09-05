@@ -30,6 +30,18 @@ export async function initializeDatabase() {
       receipt jsonb,
       updated_at timestamptz NOT NULL DEFAULT now()
     );
+    CREATE TABLE IF NOT EXISTS scan_jobs (
+      transaction_id text PRIMARY KEY REFERENCES payment_redemptions(transaction_id),
+      quote_id uuid NOT NULL UNIQUE REFERENCES payment_quotes(quote_id),
+      status text NOT NULL CHECK (status IN ('pending', 'running', 'retryable_failed', 'complete')),
+      scan_result jsonb,
+      lease_id uuid,
+      lease_token text,
+      last_error text,
+      run_started_at timestamptz,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now()
+    );
     CREATE TABLE IF NOT EXISTS tool_leases (
       lease_id uuid PRIMARY KEY,
       subject_pubkey text NOT NULL,

@@ -6,11 +6,11 @@ import { PaymentPayloadV2Schema } from '@x402/core/schemas'
 import type { PaymentPayload, PaymentRequired, PaymentRequirements } from '@x402/core/types'
 import { ExactHederaScheme } from '@x402/hedera/exact/server'
 import { getHederaSupport } from './blocky.js'
-import { scanRepository } from './github.js'
-import { issueLease } from './leases.js'
 import { PaymentError } from './payment-error.js'
-import { assertQuotedPayment, createQuote, loadQuote } from './payments.js'
-import { hashscanUrl, settlePayment } from './settlement.js'
+import { settledPaymentDetails } from './payment-receipt.js'
+import { assertQuotedPayment, createQuote, loadQuote, settledRedemption } from './payments.js'
+import { fulfillPaidScan, ScanJobError } from './scan-jobs.js'
+import { paymentTransactionId, settlePayment } from './settlement.js'
 
 export type ScanRequest = { repo_url: string; subject_pubkey: string }
 
@@ -68,16 +68,7 @@ export async function paymentRequired(
   }
 }
 
-export function settledPaymentDetails(requirements: PaymentRequirements,
-  receipt: { payer?: string; transaction: string }) {
-  return {
-    payer: receipt.payer,
-    merchant: requirements.payTo,
-    amount_tinybars: requirements.amount,
-    transaction: receipt.transaction,
-    hashscan_url: hashscanUrl(receipt.transaction),
-  }
-}
+export { settledPaymentDetails } from './payment-receipt.js'
 
 export function scanResourceUrl(requestUrl: string) {
   return new URL('/v1/scans', process.env.AUDITLAB_URL ?? requestUrl).href
@@ -104,16 +95,15 @@ scans.post('/', async (c) => {
   try {
     if (payload) {
       const quoteId = c.req.query('quote_id') ?? ''
-      const quote = await loadQuote(quoteId, request.repo_url, request.subject_pubkey)
+      const transactionId = paymentTransactionId(payload)
+      const recovered = await settledRedemption(transactionId, quoteId)
+      const quote = await loadQuote(quoteId, request.repo_url, request.subject_pubkey, Boolean(recovered))
       assertQuotedPayment(payload, quote)
-      const receipt = await settlePayment(quoteId, payload, quote.requirements)
+      const receipt = recovered ?? await settlePayment(quoteId, payload, quote.requirements)
       c.header('PAYMENT-RESPONSE', encodePaymentResponseHeader(receipt))
       c.header('Cache-Control', 'no-store')
-      const scan = await scanRepository(request.repo_url)
-      const lease = await issueLease(request.subject_pubkey, scan, receipt.transaction, quoteId)
-      return c.json({ ...scan, status: 'complete',
-        payment: settledPaymentDetails(quote.requirements, receipt),
-        lease: { token: lease.token, ...lease.claims } })
+      return c.json(await fulfillPaidScan({ transactionId, quoteId, repoUrl: request.repo_url,
+        subjectPubkey: request.subject_pubkey, requirements: quote.requirements, receipt }))
     }
     let config: ReturnType<typeof paymentConfig>
     try {
@@ -130,6 +120,9 @@ scans.post('/', async (c) => {
     c.header('Cache-Control', 'no-store')
     return c.json(required, 402)
   } catch (error) {
+    if (error instanceof ScanJobError) {
+      return c.json({ error: error.code, message: error.message }, error.code === 'SCAN_IN_PROGRESS' ? 409 : 503)
+    }
     if (error instanceof PaymentError) {
       const status = ['PAYMENT_INVALID', 'PAYMENT_REQUIREMENTS_MISMATCH', 'QUOTE_INVALID'].includes(error.code) ? 400 :
         ['QUOTE_ALREADY_REDEEMED', 'QUOTE_EXPIRED'].includes(error.code) ? 409 : 502

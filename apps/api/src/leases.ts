@@ -1,6 +1,7 @@
 import { createHash, createPrivateKey, createPublicKey, randomUUID, sign, verify, type KeyObject } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { canonicalJson } from './canonical.js'
+import type { PoolClient } from 'pg'
 import { database } from './db.js'
 import { LeaseError } from './lease-error.js'
 
@@ -127,7 +128,7 @@ export function verifyInvocation(token: string, subjectPubkey: string): Invocati
   return value as Invocation
 }
 
-export async function issueLease(subjectPubkey: string, scan: { scan_id: string; findings: unknown[] },
+export async function prepareLease(subjectPubkey: string, scan: { scan_id: string; findings: unknown[] },
   transactionId: string, offerId: string) {
   const now = Math.floor(Date.now() / 1000)
   const claims: LeaseClaims = {
@@ -137,14 +138,18 @@ export async function issueLease(subjectPubkey: string, scan: { scan_id: string;
     tool_ids: ['finding_details'], max_calls: 3, exp: now + 300, offer_id: offerId,
     hedera_tx_id: transactionId, scan_id: scan.scan_id,
   }
-  await database().query(
+  return { token: signLease(claims, await serviceKey()), claims }
+}
+
+export async function persistLease(client: PoolClient,
+  lease: Awaited<ReturnType<typeof prepareLease>>, findings: unknown[]) {
+  await client.query(
     `INSERT INTO tool_leases
        (lease_id, subject_pubkey, scan_id, hedera_tx_id, expires_at, max_calls, findings)
      VALUES ($1, $2, $3, $4, to_timestamp($5), $6, $7)`,
-    [claims.lease_id, subjectPubkey, scan.scan_id, transactionId, claims.exp, claims.max_calls,
-      JSON.stringify(scan.findings)],
+    [lease.claims.lease_id, lease.claims.subject_pubkey, lease.claims.scan_id,
+      lease.claims.hedera_tx_id, lease.claims.exp, lease.claims.max_calls, JSON.stringify(findings)],
   )
-  return { token: signLease(claims, await serviceKey()), claims }
 }
 
 export async function authorizeInvocation(claims: LeaseClaims, invocation: Invocation, findingId: string) {

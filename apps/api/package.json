@@ -11,7 +11,7 @@
     "start": "node --env-file-if-exists=.env dist/server.js",
     "typecheck": "tsc --noEmit && tsc --project tsconfig.test.json",
     "test": "tsx --test test/blocky.test.ts test/canonical.test.ts test/github.test.ts test/health.test.ts test/scans.test.ts test/settlement.test.ts",
-    "test:integration": "tsx --env-file-if-exists=.env --test test/*.integration.test.ts"
+    "test:integration": "tsx --env-file-if-exists=.env --test --test-concurrency=1 test/*.integration.test.ts"
   },
   "dependencies": {
     "@hono/node-server": "^2.1.1",
