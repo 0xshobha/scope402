@@ -43,14 +43,15 @@ The browser is not trusted with either the Hedera payer key or the subject priva
 - durable quote and transaction replay protection
 - resumable paid scan fulfillment without a second settlement
 - public GitHub commit resolution and one bounded hygiene check
-- compact ES256 ToolLease bound to the payer agent's P-256 subject key
+- compact ES256 ToolLease bound to the subject key declared before payment
 - five-minute expiry and three-call budget
 - RFC 8785/JCS argument hashing
 - atomic counter and budget consumption in PostgreSQL
 - explicit wrong-key, replay, expiry, and concurrent-counter tests
 - responsive browser homepage backed by the live health and discovery endpoints
 - guarded hosted testnet agent with prepare-before-pay approval, rate limits, spend ceiling, and balance floor
-- browser demo for a real metered quote, explicit approval, settlement, scan result, and ToolLease
+- browser demo for a real metered quote, explicit approval, settlement, scan result, ToolLease, allowed call,
+  wrong-key denial, replay denial, and expiry denial
 
 There is intentionally one merchant tool: `finding_details`.
 
@@ -140,7 +141,8 @@ corepack pnpm build
 - API and browser app are public; `/demo` can request a quote and ask a dedicated hosted testnet agent to purchase it
 - the hosted demo payer is separate from the merchant and policy-limited; the browser never receives payment or capability keys
 - completed paid retries return the original scan and ToolLease instead of granting fresh authority
-- browser-driven follow-up calls and attack controls are not wired yet; the local agent already proves them end to end
+- browser actions are fixed requests to the hosted agent; keys, lease tokens, signatures, and demo-control secrets
+  remain outside the browser
 - no HCS anchoring, Agent Kit plugin, or additional sponsor integration yet
 
 ## AI assistance

@@ -3,6 +3,7 @@ import type { Context } from 'hono'
 import { bodyLimit } from 'hono/body-limit'
 import { cors } from 'hono/cors'
 import { DemoRunError, DemoRunService } from './demo-runs.js'
+import type { DemoActionName } from './capability-demo.js'
 
 function bearer(value: string | undefined) {
   return value?.startsWith('Bearer ') ? value.slice(7) : ''
@@ -63,6 +64,22 @@ export function createDemoAgentApp(service: DemoRunService, allowedOrigins: Set<
       }
       return c.json(await service.approve(c.req.param('runId'),
         bearer(c.req.header('Authorization'))))
+    } catch (error) {
+      return demoError(c, error)
+    }
+  })
+  app.post('/demo/runs/:runId/actions/:action', async (c) => {
+    try {
+      const body = await c.req.text()
+      if (body.trim() && body.trim() !== '{}') {
+        throw new DemoRunError('INVALID_REQUEST', 400, 'Capability actions accept no caller-controlled fields')
+      }
+      const action = c.req.param('action')
+      if (!['wrong-key', 'legitimate', 'replay', 'expire'].includes(action)) {
+        throw new DemoRunError('DEMO_ACTION_NOT_FOUND', 404, 'Capability action was not found')
+      }
+      return c.json(await service.action(c.req.param('runId'),
+        bearer(c.req.header('Authorization')), action as DemoActionName))
     } catch (error) {
       return demoError(c, error)
     }

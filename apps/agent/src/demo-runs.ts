@@ -1,4 +1,5 @@
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto'
+import type { DemoActionName, DemoActionResult, DemoCapabilitySession } from './capability-demo.js'
 import type { PreparedScan, ScanResult } from './purchase.js'
 
 export type DemoState = 'PAYMENT_REQUIRED' | 'SETTLING' | 'COMPLETE' | 'FAILED'
@@ -24,6 +25,7 @@ export type PublicRun = {
     payment: ScanResult['payment']
     lease: Omit<ScanResult['lease'], 'token'> & { remaining_calls: number }
   }
+  actions?: Partial<Record<DemoActionName, DemoActionResult>>
   error?: { code: string; message: string }
 }
 
@@ -32,6 +34,9 @@ type InternalRun = {
   ip: string
   tokenHash: Buffer
   prepared: PreparedScan
+  result?: ScanResult
+  capability?: DemoCapabilitySession
+  actionAttempts: Map<DemoActionName, Promise<DemoActionResult>>
   approval?: Promise<PublicRun>
 }
 
@@ -57,6 +62,7 @@ export type DemoRunDependencies = {
   prepare(repoUrl: string): Promise<PreparedScan>
   approve(prepared: PreparedScan): Promise<Approval>
   payerBalanceTinybars(): Promise<bigint>
+  createCapabilitySession?(prepared: PreparedScan, result: ScanResult): DemoCapabilitySession
   now?(): number
   logError?(message: string): void
 }
@@ -148,7 +154,7 @@ export class DemoRunService {
       },
     }
     this.runs.set(runId, { public: publicRun, ip,
-      tokenHash: createHash('sha256').update(token).digest(), prepared })
+      tokenHash: createHash('sha256').update(token).digest(), prepared, actionAttempts: new Map() })
     return { run: structuredClone(publicRun), run_token: token }
   }
 
@@ -192,6 +198,10 @@ export class DemoRunService {
           throw new DemoRunError('DEMO_BALANCE_FLOOR', 409, 'Hosted demo-agent balance floor reached')
         }
         const approved = await this.dependencies.approve(run.prepared)
+        run.result = approved.result
+        if (approved.result.findings.length && this.dependencies.createCapabilitySession) {
+          run.capability = this.dependencies.createCapabilitySession(run.prepared, approved.result)
+        }
         run.public.state = 'COMPLETE'
         run.public.result = publicResult(approved.result)
         return structuredClone(run.public)
@@ -207,5 +217,40 @@ export class DemoRunService {
       }
     })()
     return run.approval
+  }
+
+  action(runId: string, token: string, action: DemoActionName) {
+    const run = this.authorized(runId, token)
+    if (run.public.state !== 'COMPLETE' || !run.result) {
+      throw new DemoRunError('DEMO_RUN_INCOMPLETE', 409, 'Complete the paid scan before testing authority')
+    }
+    if (!run.result.findings.length) {
+      throw new DemoRunError('DEMO_NO_FINDING', 409, 'This scan is clean; no finding-specific call is available')
+    }
+    if (!run.capability) {
+      throw new DemoRunError('DEMO_ACTION_UNAVAILABLE', 409, 'Capability actions are not configured')
+    }
+    if ((action === 'replay' || action === 'expire') && !run.public.actions?.legitimate) {
+      throw new DemoRunError('DEMO_ACTION_ORDER', 409, 'Run the legitimate call before this action')
+    }
+    const completed = run.public.actions?.[action]
+    if (completed) return Promise.resolve(structuredClone(completed))
+    const active = run.actionAttempts.get(action)
+    if (active) return active
+    const attempt = run.capability.execute(action).then((result) => {
+      run.public.actions = { ...run.public.actions, [action]: result }
+      if (result.action === 'legitimate' && run.public.result) {
+        run.public.result.lease.remaining_calls = result.remaining_calls
+      }
+      return structuredClone(result)
+    }).catch((error: unknown) => {
+      run.actionAttempts.delete(action)
+      if (error instanceof DemoRunError) throw error
+      this.dependencies.logError?.(error instanceof Error ? error.message : 'Unknown capability action failure')
+      throw new DemoRunError('DEMO_ACTION_FAILED', 502,
+        error instanceof Error ? error.message : 'Hosted demo-agent capability action failed')
+    })
+    run.actionAttempts.set(action, attempt)
+    return attempt
   }
 }

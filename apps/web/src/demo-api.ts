@@ -42,7 +42,21 @@ export type DemoRun = {
       scan_id: string
     }
   }
+  actions?: Partial<Record<DemoActionName, DemoActionResult>>
   error?: { code: string; message: string }
+}
+
+export type DemoActionName = 'wrong-key' | 'legitimate' | 'replay' | 'expire'
+
+export type DemoActionResult = {
+  action: DemoActionName
+  verdict: 'ALLOWED' | 'DENIED'
+  status: 200 | 403 | 410
+  code: 'FINDING_DETAILS_ALLOWED' | 'SUBJECT_KEY_MISMATCH' | 'REPLAY_DETECTED' | 'LEASE_EXPIRED'
+  message: string
+  counter: number
+  remaining_calls: number
+  finding?: { id: string; severity: string; message: string }
 }
 
 type PreparedRun = { run: DemoRun; run_token: string }
@@ -79,6 +93,21 @@ export async function approveDemoRun(runId: string, token: string) {
     body: '{}', signal: AbortSignal.timeout(120_000),
   })
   return readResponse<DemoRun>(response)
+}
+
+export async function getDemoRun(runId: string, token: string) {
+  const response = await fetch(endpoint(`/demo/runs/${runId}`), {
+    headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(30_000),
+  })
+  return readResponse<DemoRun>(response)
+}
+
+export async function executeDemoAction(runId: string, token: string, action: DemoActionName) {
+  const response = await fetch(endpoint(`/demo/runs/${runId}/actions/${action}`), {
+    method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: '{}', signal: AbortSignal.timeout(30_000),
+  })
+  return readResponse<DemoActionResult>(response)
 }
 
 export const publicDemoAgentUrl = 'https://scope402-demo-agent.onrender.com'

@@ -1,5 +1,6 @@
 import { serve } from '@hono/node-server'
 import { createDemoAgentApp } from './demo-app.js'
+import { createCapabilitySession } from './capability-demo.js'
 import { DemoRunService, type DemoRunLimits } from './demo-runs.js'
 import { approveScanPurchase, prepareScanPurchase, type PayerConfig } from './purchase.js'
 import { ephemeralSubject } from './subject.js'
@@ -50,7 +51,7 @@ function config() {
   const allowedOrigins = new Set((process.env.DEMO_ALLOWED_ORIGINS ??
     'https://scope402.onrender.com,http://127.0.0.1:4173,http://localhost:4173')
     .split(',').map((value) => value.trim()).filter(Boolean))
-  return { payerConfig, limits, allowedOrigins }
+  return { payerConfig, limits, allowedOrigins, demoControlSecret: required('DEMO_CONTROL_SECRET') }
 }
 
 async function payerBalanceTinybars(accountId: string) {
@@ -66,11 +67,13 @@ async function payerBalanceTinybars(accountId: string) {
   return BigInt(balance)
 }
 
-const { payerConfig, limits, allowedOrigins } = config()
+const { payerConfig, limits, allowedOrigins, demoControlSecret } = config()
 const service = new DemoRunService({
   prepare: (repoUrl) => prepareScanPurchase(payerConfig, repoUrl, ephemeralSubject()),
   approve: (prepared) => approveScanPurchase(payerConfig, prepared),
   payerBalanceTinybars: () => payerBalanceTinybars(payerConfig.payer),
+  createCapabilitySession: (prepared, result) =>
+    createCapabilitySession(prepared, result, demoControlSecret),
   logError: (message) => console.error(`Demo approval failed: ${message}`),
 }, limits)
 const app = createDemoAgentApp(service, allowedOrigins)

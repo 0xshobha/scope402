@@ -3,11 +3,11 @@ import { useEffect, useState } from 'react'
 import { loadLiveState, publicApiUrl, type LiveState } from './api.js'
 import { DemoPage } from './DemoPage.js'
 
-const states = ['READY', 'PAYMENT REQUIRED', 'AGENT ACTION', 'SETTLED', 'SCAN COMPLETE', 'LEASE ACTIVE']
+const states = ['DISCOVER', 'PAY', 'WORK', 'AUTHORITY']
 
 const denials = [
   { number: '01', label: 'STOLEN LEASE', status: '403', code: 'SUBJECT_KEY_MISMATCH',
-    copy: 'The lease is bound to the payer agent’s P-256 key. Possession of the token is not enough.' },
+    copy: 'The lease is bound to the subject key declared before payment. Possession of the token is not enough.' },
   { number: '02', label: 'REPLAYED CALL', status: '403', code: 'REPLAY_DETECTED',
     copy: 'Each signed invocation advances one atomic counter. The same request cannot spend authority twice.' },
   { number: '03', label: 'EXPIRED AUTHORITY', status: '410', code: 'LEASE_EXPIRED',
@@ -89,8 +89,8 @@ export function App() {
       <div className="eyebrow">HEDERA TESTNET · X402 V2 · AUDITLAB</div>
       <motion.h1 initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.35 }}>Payment is not<br/><em>authorization.</em></motion.h1>
-      <p className="lede">A real HBAR payment buys useful work. Scope402 turns that purchase into narrow,
-        key-bound authority that expires.</p>
+      <p className="lede">One HBAR payment buys useful work and a five-minute, three-call capability to one tool,
+        usable only by the declared P-256 subject key.</p>
       <div className="hero-actions">
         <a className="button primary" href="/demo">RUN THE LIVE DEMO</a>
         <a className="button" href="#proof">CHECK API STATUS</a>
@@ -102,6 +102,12 @@ export function App() {
 
     <div id="proof"><StatusRail live={live} checking={checking} onRetry={retryStatus} /></div>
 
+    <section className="protocol-gap">
+      <span className="section-label">THE GAP</span>
+      <div><strong className="mono">x402</strong><p>Settles the paid request.</p></div>
+      <div><strong className="mono">Scope402</strong><p>Enforces which subject may use which tool, how often, and until when.</p></div>
+    </section>
+
     <section className="contrast" id="mechanism">
       <article className="problem-card">
         <span className="section-label">THE BEARER PROBLEM</span>
@@ -110,20 +116,20 @@ export function App() {
         <p>Copied credentials inherit the same authority. No subject binding. No call budget. No natural end.</p>
       </article>
       <article className="lease-card">
-        <span className="section-label">THE SCOPE402 SWAP</span>
-        <h2>Pay once.<br/>Receive boundaries.</h2>
+        <span className="section-label">WHAT THE PAYMENT BUYS</span>
+        <h2>One tool.<br/>Hard boundaries.</h2>
         <dl>
-          <div><dt>SUBJECT</dt><dd className="mono">P-256 KEY BOUND</dd></div>
-          <div><dt>TOOLS</dt><dd className="mono">EXPLICIT ALLOWLIST</dd></div>
-          <div><dt>BUDGET</dt><dd className="mono">ATOMIC COUNTER</dd></div>
-          <div><dt>EXPIRY</dt><dd className="mono">SERVER ENFORCED</dd></div>
+          <div><dt>SUBJECT</dt><dd className="mono">P-256 · DECLARED BEFORE PAY</dd></div>
+          <div><dt>TOOL</dt><dd className="mono">finding_details</dd></div>
+          <div><dt>BUDGET</dt><dd className="mono">3 CALLS</dd></div>
+          <div><dt>EXPIRY</dt><dd className="mono">5 MINUTES</dd></div>
         </dl>
       </article>
     </section>
 
     <section className="flow-section">
-      <div className="section-heading"><span className="section-label">ONE PURCHASE · SIX REAL STATES</span>
-        <h2>The payment is only the middle.</h2></div>
+      <div className="section-heading"><span className="section-label">ONE PURCHASE · FOUR DECISIONS</span>
+        <h2>Discover. Pay. Work. Authorize.</h2></div>
       <StateRail />
     </section>
 
@@ -132,7 +138,7 @@ export function App() {
         <span className="section-label">WHAT THE PAYMENT BINDS</span>
         <h2>A priced snapshot.<br/>Not a moving target.</h2>
         <p>The server-persisted x402 quote binds the repository, exact commit, metered workload,
-          payer subject, merchant, and amount before the agent signs.</p>
+          declared subject key, merchant, and amount before the agent signs.</p>
       </div>
       <div className="meter-card">
         <div className="meter-head"><span className="section-label">BOUNDED METER</span><strong>ROOT FILES</strong></div>

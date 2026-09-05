@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import type { PreparedScan, ScanResult } from '../src/purchase.js'
 import { DemoRunError, DemoRunService, type DemoRunLimits } from '../src/demo-runs.js'
+import type { DemoActionResult } from '../src/capability-demo.js'
 import { ephemeralSubject } from '../src/subject.js'
 
 const limits: DemoRunLimits = {
@@ -113,4 +114,59 @@ test('balance and global spend limits fail closed before payment execution', asy
   await assert.rejects(service.approve(created.run.run_id, created.run_token),
     (error) => error instanceof DemoRunError && error.code === 'DEMO_BALANCE_FLOOR')
   assert.equal(approvals, 0)
+})
+
+test('capability actions are private, ordered, idempotent, and update the public budget', async () => {
+  const scan = prepared()
+  let executions = 0
+  const actionResult = (action: DemoActionResult['action']): DemoActionResult => ({
+    action,
+    verdict: action === 'legitimate' ? 'ALLOWED' : 'DENIED',
+    status: action === 'legitimate' ? 200 : action === 'expire' ? 410 : 403,
+    code: action === 'legitimate' ? 'FINDING_DETAILS_ALLOWED' :
+      action === 'wrong-key' ? 'SUBJECT_KEY_MISMATCH' :
+        action === 'replay' ? 'REPLAY_DETECTED' : 'LEASE_EXPIRED',
+    message: action,
+    counter: action === 'expire' ? 2 : 1,
+    remaining_calls: action === 'wrong-key' ? 3 : 2,
+  })
+  const service = new DemoRunService({
+    prepare: async () => scan,
+    approve: async () => ({ result: result(scan) }),
+    payerBalanceTinybars: async () => 10_000_000n,
+    createCapabilitySession: () => ({ execute: async (action) => {
+      executions += 1
+      return actionResult(action)
+    } }),
+  }, limits)
+  const created = await service.create(scan.repoUrl, '203.0.113.1')
+  await service.approve(created.run.run_id, created.run_token)
+  assert.throws(() => service.action(created.run.run_id, created.run_token, 'replay'),
+    (error) => error instanceof DemoRunError && error.code === 'DEMO_ACTION_ORDER')
+  const wrongKey = await service.action(created.run.run_id, created.run_token, 'wrong-key')
+  assert.equal(wrongKey.remaining_calls, 3)
+  const [first, second] = await Promise.all([
+    service.action(created.run.run_id, created.run_token, 'legitimate'),
+    service.action(created.run.run_id, created.run_token, 'legitimate'),
+  ])
+  assert.deepEqual(first, second)
+  assert.equal(executions, 2)
+  assert.equal(service.get(created.run.run_id, created.run_token).result?.lease.remaining_calls, 2)
+  assert.equal(JSON.stringify(service.get(created.run.run_id, created.run_token)).includes(result(scan).lease.token), false)
+  assert.equal((await service.action(created.run.run_id, created.run_token, 'replay')).code, 'REPLAY_DETECTED')
+  assert.equal((await service.action(created.run.run_id, created.run_token, 'expire')).status, 410)
+})
+
+test('clean scans disable finding-specific capability actions', async () => {
+  const scan = prepared()
+  const clean = result(scan)
+  clean.findings = []
+  const service = new DemoRunService({
+    prepare: async () => scan, approve: async () => ({ result: clean }),
+    payerBalanceTinybars: async () => 10_000_000n,
+  }, limits)
+  const created = await service.create(scan.repoUrl, '203.0.113.1')
+  await service.approve(created.run.run_id, created.run_token)
+  assert.throws(() => service.action(created.run.run_id, created.run_token, 'legitimate'),
+    (error) => error instanceof DemoRunError && error.code === 'DEMO_NO_FINDING')
 })

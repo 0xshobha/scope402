@@ -1,7 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
-import { approveDemoRun, prepareDemoRun, publicDemoAgentUrl, type DemoRun } from './demo-api.js'
+import { approveDemoRun, executeDemoAction, getDemoRun, prepareDemoRun, publicDemoAgentUrl,
+  type DemoActionName, type DemoActionResult, type DemoRun } from './demo-api.js'
 
 const steps = ['READY', 'PAYMENT REQUIRED', 'AGENT ACTION', 'SETTLED', 'SCAN COMPLETE', 'LEASE ACTIVE']
+const storedRunId = 'scope402-demo-run-id'
+const storedRunToken = 'scope402-demo-run-token'
 
 function activeStep(run: DemoRun | undefined, settling: boolean) {
   if (!run) return 0
@@ -62,8 +65,24 @@ export function DemoPage() {
   const [token, setToken] = useState('')
   const [preparing, setPreparing] = useState(false)
   const [settling, setSettling] = useState(false)
+  const [activeAction, setActiveAction] = useState<DemoActionName>()
+  const [actions, setActions] = useState<Partial<Record<DemoActionName, DemoActionResult>>>({})
   const [error, setError] = useState('')
   const currentStep = activeStep(run, settling)
+
+  useEffect(() => {
+    const runId = window.sessionStorage.getItem(storedRunId)
+    const runToken = window.sessionStorage.getItem(storedRunToken)
+    if (!runId || !runToken) return
+    void getDemoRun(runId, runToken).then((restored) => {
+      setRun(restored)
+      setToken(runToken)
+      setActions(restored.actions ?? {})
+    }).catch(() => {
+      window.sessionStorage.removeItem(storedRunId)
+      window.sessionStorage.removeItem(storedRunToken)
+    })
+  }, [])
 
   const prepare = async (event: React.FormEvent) => {
     event.preventDefault()
@@ -71,14 +90,36 @@ export function DemoPage() {
     setError('')
     setRun(undefined)
     setToken('')
+    setActions({})
     try {
       const prepared = await prepareDemoRun(repoUrl)
       setRun(prepared.run)
       setToken(prepared.run_token)
+      setActions(prepared.run.actions ?? {})
+      window.sessionStorage.setItem(storedRunId, prepared.run.run_id)
+      window.sessionStorage.setItem(storedRunToken, prepared.run_token)
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Demo preparation failed')
     } finally {
       setPreparing(false)
+    }
+  }
+
+  const execute = async (action: DemoActionName) => {
+    if (!run || !token) return
+    setActiveAction(action)
+    setError('')
+    try {
+      const result = await executeDemoAction(run.run_id, token, action)
+      setActions((current) => ({ ...current, [action]: result }))
+      if (action === 'legitimate' && run.result) {
+        setRun({ ...run, result: { ...run.result,
+          lease: { ...run.result.lease, remaining_calls: result.remaining_calls } } })
+      }
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Capability action failed')
+    } finally {
+      setActiveAction(undefined)
     }
   }
 
@@ -87,7 +128,9 @@ export function DemoPage() {
     setSettling(true)
     setError('')
     try {
-      setRun(await approveDemoRun(run.run_id, token))
+      const approved = await approveDemoRun(run.run_id, token)
+      setRun(approved)
+      setActions(approved.actions ?? {})
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Payment failed')
     } finally {
@@ -190,15 +233,55 @@ export function DemoPage() {
       </article>
     </section>}
 
-    <section className="demo-next">
-      <span className="section-label">NEXT PROOF</span>
-      <h2>A successful payment does not make a stolen lease usable.</h2>
-      <p>The attack drawer—wrong key, byte-identical replay, and server-side expiry—is the next isolated feature.
-        This page will only show it after those actions are driven by the real agent and API.</p>
-    </section>
+    {run?.result && <section className="capability-lab">
+      <div className="capability-intro">
+        <span className="section-label">THE PROOF IS IN THE NO</span>
+        <h2>Use it once.<br/>Then try to break it.</h2>
+        <p>The hosted agent keeps every key and token private. These controls request fixed actions;
+          the browser cannot supply a signature, counter, lease, destination, or payment field.</p>
+      </div>
+      {!run.result.findings.length ? <div className="clean-capability">
+        <strong className="mono">SCAN_CLEAN</strong>
+        <p>No finding-specific authority is needed for this repository. Choose a repository with a real finding
+          to run the capability attacks.</p>
+      </div> : <div className="action-stack">
+        <ActionRow number="01" label="LEGITIMATE SUBJECT" action="legitimate" result={actions.legitimate}
+          disabled={Boolean(activeAction)} onRun={execute} />
+        <ActionRow number="02" label="WRONG SUBJECT KEY" action="wrong-key" result={actions['wrong-key']}
+          disabled={Boolean(activeAction) || !actions.legitimate} onRun={execute} />
+        <ActionRow number="03" label="BYTE-IDENTICAL REPLAY" action="replay" result={actions.replay}
+          disabled={Boolean(activeAction) || !actions.legitimate} onRun={execute} />
+        <ActionRow number="04" label="SERVER-SIDE EXPIRY" action="expire" result={actions.expire}
+          disabled={Boolean(activeAction) || !actions['wrong-key'] || !actions.replay} onRun={execute} />
+      </div>}
+    </section>}
 
     <footer><span>Scope402 · guarded hosted agent</span>
       <a href={`${publicDemoAgentUrl}/health`} target="_blank" rel="noreferrer">AGENT HEALTH ↗</a>
       <a href="https://github.com/0xshobha/scope402" target="_blank" rel="noreferrer">SOURCE ↗</a></footer>
   </main>
+}
+
+function ActionRow({ number, label, action, result, disabled, onRun }: {
+  number: string
+  label: string
+  action: DemoActionName
+  result?: DemoActionResult
+  disabled: boolean
+  onRun: (action: DemoActionName) => void
+}) {
+  const copy = action === 'legitimate' ? 'USE LEASE' : action === 'wrong-key' ? 'TRY STOLEN LEASE' :
+    action === 'replay' ? 'REPLAY SAME CALL' : 'EXPIRE AND RETRY'
+  return <article className={`action-row ${result ? result.verdict.toLowerCase() : ''}`}>
+    <span className="mono action-number">{number}</span>
+    <div><small>{label}</small>{result ? <>
+      <strong className="mono">{result.status} · {result.code}</strong>
+      <p>{result.message}</p>
+    </> : <strong>{action === 'legitimate' ? 'Declared key · counter 1' :
+      action === 'wrong-key' ? 'Different P-256 key · same lease' :
+        action === 'replay' ? 'Same signed bytes · same counter' : 'Persisted expiry · valid signature'}</strong>}</div>
+    <button className="button" type="button" disabled={disabled || Boolean(result)} onClick={() => onRun(action)}>
+      {result ? result.verdict : copy}
+    </button>
+  </article>
 }

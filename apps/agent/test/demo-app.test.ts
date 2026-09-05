@@ -4,6 +4,7 @@ import { createDemoAgentApp } from '../src/demo-app.js'
 import { DemoRunService, type DemoRunLimits } from '../src/demo-runs.js'
 import type { PreparedScan, ScanResult } from '../src/purchase.js'
 import { ephemeralSubject } from '../src/subject.js'
+import type { DemoActionResult } from '../src/capability-demo.js'
 
 const limits: DemoRunLimits = { runTtlMs: 240_000, perIpRunsPerHour: 3,
   globalRunsPerHour: 50, globalApprovalsPerHour: 20, maxHourlySpendTinybars: 3_000_000n,
@@ -65,4 +66,34 @@ test('HTTP boundary requires the opaque run capability', async () => {
   }, limits), new Set())
   const response = await app.request('/demo/runs/00000000-0000-4000-8000-000000000000')
   assert.equal(response.status, 404)
+})
+
+test('capability action boundary accepts no browser-controlled invocation fields', async () => {
+  const data = fixture()
+  data.result.findings = [{ id: 'missing-lockfile', severity: 'medium', message: 'Missing lockfile' }]
+  const action: DemoActionResult = { action: 'legitimate', verdict: 'ALLOWED', status: 200,
+    code: 'FINDING_DETAILS_ALLOWED', message: 'allowed', counter: 1, remaining_calls: 2 }
+  const app = createDemoAgentApp(new DemoRunService({
+    prepare: async () => data.prepared,
+    approve: async () => ({ result: data.result }),
+    payerBalanceTinybars: async () => 10_000_000n,
+    createCapabilitySession: () => ({ execute: async () => action }),
+  }, limits), new Set())
+  const created = await app.request('/demo/runs', { method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-forwarded-for': '203.0.113.1' },
+    body: JSON.stringify({ repo_url: data.prepared.repoUrl }) })
+  const body = await created.json() as { run: { run_id: string }; run_token: string }
+  await app.request(`/demo/runs/${body.run.run_id}/approve`, { method: 'POST',
+    headers: { Authorization: `Bearer ${body.run_token}` }, body: '{}' })
+  const injected = await app.request(`/demo/runs/${body.run.run_id}/actions/legitimate`, {
+    method: 'POST', headers: { Authorization: `Bearer ${body.run_token}` },
+    body: JSON.stringify({ lease: 'caller-controlled', counter: 99 }) })
+  assert.equal(injected.status, 400)
+  const allowed = await app.request(`/demo/runs/${body.run.run_id}/actions/legitimate`, {
+    method: 'POST', headers: { Authorization: `Bearer ${body.run_token}` }, body: '{}' })
+  assert.equal(allowed.status, 200)
+  assert.equal((await allowed.json() as DemoActionResult).code, 'FINDING_DETAILS_ALLOWED')
+  const unknown = await app.request(`/demo/runs/${body.run.run_id}/actions/escalate`, {
+    method: 'POST', headers: { Authorization: `Bearer ${body.run_token}` }, body: '{}' })
+  assert.equal(unknown.status, 404)
 })
