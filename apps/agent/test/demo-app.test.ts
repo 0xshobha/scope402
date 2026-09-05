@@ -48,9 +48,15 @@ test('HTTP boundary accepts only repo_url and rejects browser payment fields', a
   assert.equal((await injected.json() as { error: string }).error, 'INVALID_REQUEST')
 
   const created = await app.request('/demo/runs', { method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'x-forwarded-for': '203.0.113.1' },
+    headers: { 'Content-Type': 'application/json', 'cf-connecting-ip': '203.0.113.1',
+      'x-forwarded-for': '198.51.100.77' },
     body: JSON.stringify({ repo_url: data.prepared.repoUrl }) })
   assert.equal(created.status, 202)
+  const spoofed = await app.request('/demo/runs', { method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'cf-connecting-ip': '203.0.113.1',
+      'x-forwarded-for': '192.0.2.99' }, body: JSON.stringify({ repo_url: data.prepared.repoUrl }) })
+  assert.equal(spoofed.status, 409)
+  assert.equal((await spoofed.json() as { error: string }).error, 'DEMO_RUN_ACTIVE')
   const body = await created.json() as { run: { run_id: string }; run_token: string }
   const approve = await app.request(`/demo/runs/${body.run.run_id}/approve`, { method: 'POST',
     headers: { Authorization: `Bearer ${body.run_token}` },

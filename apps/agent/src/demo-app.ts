@@ -9,8 +9,9 @@ function bearer(value: string | undefined) {
   return value?.startsWith('Bearer ') ? value.slice(7) : ''
 }
 
-function clientIp(forwarded: string | undefined, real: string | undefined) {
-  return forwarded?.split(',')[0]?.trim() || real || 'unknown'
+function clientIp(cloudflare: string | undefined, forwarded: string | undefined,
+  real: string | undefined) {
+  return cloudflare?.trim() || forwarded?.split(',').at(-1)?.trim() || real || 'unknown'
 }
 
 export function createDemoAgentApp(service: DemoRunService, allowedOrigins: Set<string>) {
@@ -44,7 +45,8 @@ export function createDemoAgentApp(service: DemoRunService, allowedOrigins: Set<
         throw new DemoRunError('INVALID_REQUEST', 400, 'Only repo_url is accepted')
       }
       return c.json(await service.create(body.repo_url,
-        clientIp(c.req.header('x-forwarded-for'), c.req.header('x-real-ip'))), 202)
+        clientIp(c.req.header('cf-connecting-ip'), c.req.header('x-forwarded-for'),
+          c.req.header('x-real-ip'))), 202)
     } catch (error) {
       return demoError(c, error)
     }
