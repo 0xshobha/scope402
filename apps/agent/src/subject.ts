@@ -1,4 +1,4 @@
-import { createPrivateKey, createPublicKey, generateKeyPairSync, sign } from 'node:crypto'
+import { createPrivateKey, createPublicKey, generateKeyPairSync, sign, type KeyObject } from 'node:crypto'
 import { chmod, mkdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
@@ -35,13 +35,27 @@ export async function subjectPublicKey() {
   return createPublicKey(await subjectKey()).export({ type: 'spki', format: 'der' }).toString('base64url')
 }
 
-export async function signInvocation(invocation: object) {
-  const key = await subjectKey()
+export function signInvocationWithKey(invocation: object, key: KeyObject) {
   const subject_pubkey = createPublicKey(key).export({ type: 'spki', format: 'der' }).toString('base64url')
   const header = Buffer.from(canonicalJson({ alg: 'ES256', subject_pubkey,
     typ: 'scope402-invocation+jws' })).toString('base64url')
   const payload = Buffer.from(canonicalJson(invocation)).toString('base64url')
   const signature = sign('sha256', Buffer.from(`${header}.${payload}`),
     { key, dsaEncoding: 'ieee-p1363' }).toString('base64url')
-  return `${header}.${payload}.${signature}`
+  return { signature: `${header}.${payload}.${signature}`, subjectPubkey: subject_pubkey }
+}
+
+export async function signInvocation(invocation: object) {
+  return signInvocationWithKey(invocation, await subjectKey()).signature
+}
+
+export function attackerSubject() {
+  const { privateKey } = generateKeyPairSync('ec', { namedCurve: 'prime256v1' })
+  const subjectPubkey = createPublicKey(privateKey).export({ type: 'spki', format: 'der' }).toString('base64url')
+  return {
+    subjectPubkey,
+    sign(invocation: object) {
+      return signInvocationWithKey(invocation, privateKey).signature
+    },
+  }
 }
