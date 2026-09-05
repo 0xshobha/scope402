@@ -4,7 +4,8 @@ import { test } from 'node:test'
 import { decodePaymentRequiredHeader, encodePaymentRequiredHeader } from '@x402/core/http'
 import { PaymentRequiredV2Schema } from '@x402/core/schemas'
 import { app } from '../src/app.js'
-import { meterScan, parseScanRequest, paymentConfig, paymentRequired, pricingConfig,
+import { clearRepositoryCache } from '../src/github.js'
+import { assertPaymentAmount, meterScan, parseScanRequest, paymentRequired, pricingConfig,
   scanResourceUrl, settledPaymentDetails } from '../src/scans.js'
 
 const { publicKey } = generateKeyPairSync('ec', { namedCurve: 'prime256v1' })
@@ -65,6 +66,26 @@ test('refuses to advertise payment without merchant configuration', async (t) =>
   assert.equal(response.headers.has('PAYMENT-REQUIRED'), false)
 })
 
+test('reports a missing or private GitHub repository as a client error', async (t) => {
+  const merchant = process.env.HEDERA_MERCHANT_ACCOUNT_ID
+  const originalFetch = globalThis.fetch
+  process.env.HEDERA_MERCHANT_ACCOUNT_ID = '0.0.12345'
+  clearRepositoryCache()
+  globalThis.fetch = (async () => new Response('{}', { status: 404 })) as typeof fetch
+  t.after(() => {
+    if (merchant === undefined) delete process.env.HEDERA_MERCHANT_ACCOUNT_ID
+    else process.env.HEDERA_MERCHANT_ACCOUNT_ID = merchant
+    globalThis.fetch = originalFetch
+    clearRepositoryCache()
+  })
+  const response = await app.request('/v1/scans', {
+    method: 'POST', headers: { 'Content-Type': 'application/json',
+      'X-Forwarded-For': '203.0.113.44' }, body: JSON.stringify(request),
+  })
+  assert.equal(response.status, 404)
+  assert.equal((await response.json()).error, 'REPOSITORY_NOT_FOUND')
+})
+
 test('rejects invalid metered tinybar amounts', (t) => {
   const merchant = process.env.HEDERA_MERCHANT_ACCOUNT_ID
   t.after(() => {
@@ -73,7 +94,7 @@ test('rejects invalid metered tinybar amounts', (t) => {
   })
   process.env.HEDERA_MERCHANT_ACCOUNT_ID = '0.0.12345'
   for (const amount of ['0', '-1', '0.001', '1e5', '100000001', 'abc']) {
-    assert.throws(() => paymentConfig(amount), /Metered scan amount/)
+    assert.throws(() => assertPaymentAmount(amount), /Metered scan amount/)
   }
 })
 

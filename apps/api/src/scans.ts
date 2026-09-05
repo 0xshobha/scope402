@@ -6,7 +6,7 @@ import { PaymentPayloadV2Schema } from '@x402/core/schemas'
 import type { PaymentPayload, PaymentRequired, PaymentRequirements } from '@x402/core/types'
 import { ExactHederaScheme } from '@x402/hedera/exact/server'
 import { getHederaSupport } from './blocky.js'
-import { prepareRepository, scanRepositorySnapshot } from './github.js'
+import { GitHubRequestError, prepareRepository, scanRepositorySnapshot } from './github.js'
 import { PaymentError } from './payment-error.js'
 import { settledPaymentDetails } from './payment-receipt.js'
 import { assertQuotedPayment, createQuote, loadQuote, settledRedemption, type Pricing } from './payments.js'
@@ -41,15 +41,19 @@ export function parseScanRequest(value: unknown): ScanRequest {
   return { repo_url, subject_pubkey }
 }
 
-export function paymentConfig(amount: string) {
+export function merchantConfig() {
   const payTo = process.env.HEDERA_MERCHANT_ACCOUNT_ID
   if (!payTo || !/^\d+\.\d+\.[1-9]\d*$/.test(payTo)) {
     throw new Error('Set HEDERA_MERCHANT_ACCOUNT_ID to the merchant account ID')
   }
+  return { payTo }
+}
+
+export function assertPaymentAmount(amount: string) {
   if (!/^[1-9]\d*$/.test(amount) || BigInt(amount) > 100_000_000n) {
     throw new Error('Metered scan amount must be between 1 and 100000000 tinybars (1 HBAR)')
   }
-  return { payTo, amount }
+  return amount
 }
 
 function positiveInteger(name: string, fallback: string, maximum: bigint) {
@@ -139,12 +143,12 @@ scans.post('/', async (c) => {
       return c.json(await fulfillPaidScan({ transactionId, quoteId, repoUrl: request.repo_url,
         subjectPubkey: request.subject_pubkey, requirements: quote.requirements, receipt }, runScan))
     }
-    let config: ReturnType<typeof paymentConfig>
+    let merchant: ReturnType<typeof merchantConfig>
     let pricingPolicy: ReturnType<typeof pricingConfig>
     let snapshot: Awaited<ReturnType<typeof prepareRepository>>
     let pricing: Pricing
     try {
-      config = paymentConfig('1')
+      merchant = merchantConfig()
       pricingPolicy = pricingConfig()
     } catch (error) {
       return c.json({ error: 'PAYMENT_NOT_CONFIGURED', message: (error as Error).message }, 503)
@@ -159,13 +163,18 @@ scans.post('/', async (c) => {
     try {
       snapshot = await prepareRepository(request.repo_url)
       pricing = meterScan(snapshot.root_files.length, pricingPolicy)
-      config = { ...config, amount: pricing.total_tinybars }
     } catch (error) {
+      if (error instanceof GitHubRequestError &&
+          (error.status === 404 || (error.status === 403 && !error.retryable))) {
+        return c.json({ error: 'REPOSITORY_NOT_FOUND',
+          message: 'GitHub repository was not found or is not public' }, 404)
+      }
       return c.json({ error: 'QUOTE_UNAVAILABLE', message: (error as Error).message }, 503)
     }
     const support = await getHederaSupport()
     const endpoint = scanResourceUrl(c.req.url)
     const description = `AuditLab scan of ${snapshot.repo}@${snapshot.commit_sha} (${pricing.files_considered} root files)`
+    const config = { ...merchant, amount: assertPaymentAmount(pricing.total_tinybars) }
     const draft = await paymentRequired(endpoint, config, support, description)
     const quote = await createQuote(request.repo_url, request.subject_pubkey, endpoint,
       draft.accepts[0]!, snapshot, pricing)

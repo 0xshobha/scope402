@@ -2,10 +2,10 @@ import assert from 'node:assert/strict'
 import { generateKeyPairSync } from 'node:crypto'
 import { decodePaymentRequiredHeader } from '@x402/core/http'
 import { PaymentRequiredV2Schema } from '@x402/core/schemas'
-import { paymentConfig } from './scans.js'
+import { merchantConfig } from './scans.js'
 
 try {
-  const config = paymentConfig('1')
+  const config = merchantConfig()
   const { publicKey } = generateKeyPairSync('ec', { namedCurve: 'prime256v1' })
   const url = new URL('/v1/scans', process.env.AUDITLAB_URL ?? 'http://127.0.0.1:3000')
   const response = await fetch(url, {

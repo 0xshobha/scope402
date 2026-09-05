@@ -48,7 +48,7 @@ async function run() {
   const header = response.headers.get('PAYMENT-REQUIRED')
   if (!header) throw new Error('402 response has no PAYMENT-REQUIRED header')
   const { required, paymentUrl, terms } = selectPayment(decodePaymentRequiredHeader(header), url.href,
-    merchant, payer, process.env.MAX_PAYMENT_TINYBARS ?? '100000')
+    merchant, payer, process.env.MAX_PAYMENT_TINYBARS ?? '150000')
   console.log(`402 received: ${terms.amount} tinybars from ${payer} to ${merchant}`)
   const signer = createClientHederaSigner(payer, PrivateKey.fromStringECDSA(secret), { network: 'hedera:testnet' })
   const signed = await new ExactHederaScheme(signer).createPaymentPayload(2, terms)
