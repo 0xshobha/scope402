@@ -6,6 +6,8 @@ Scope402 is an x402 service that accepts HBAR for useful work, then issues a sho
 
 Public API: [scope402-auditlab.onrender.com](https://scope402-auditlab.onrender.com/health)
 
+Public web: [scope402.onrender.com](https://scope402.onrender.com)
+
 ## Why
 
 An x402 settlement proves that money moved. It does not make a bearer credential safe to steal, stop a paid action from being replayed, or define a budget for later calls. Scope402 keeps those concerns separate:
@@ -47,6 +49,8 @@ The browser is not trusted with either the Hedera payer key or the subject priva
 - atomic counter and budget consumption in PostgreSQL
 - explicit wrong-key, replay, expiry, and concurrent-counter tests
 - responsive browser homepage backed by the live health and discovery endpoints
+- guarded hosted testnet agent with prepare-before-pay approval, rate limits, spend ceiling, and balance floor
+- browser demo for a real metered quote, explicit approval, settlement, scan result, and ToolLease
 
 There is intentionally one merchant tool: `finding_details`.
 
@@ -111,7 +115,7 @@ Run the paid client:
 node --env-file=/path/to/agent.env apps/agent/dist/index.js https://github.com/expressjs/express
 ```
 
-Run the browser homepage locally:
+Run the browser app locally:
 
 ```bash
 corepack pnpm --filter @scope402/web dev
@@ -133,10 +137,11 @@ corepack pnpm build
 - public GitHub repositories only
 - one deterministic repository check and one follow-up tool
 - quotes bind an exact GitHub commit and meter bounded root-file workload
-- API is public; the browser homepage currently runs locally
-- the payer agent remains local, so the browser cannot yet initiate a paid run
+- API and browser app are public; `/demo` can request a quote and ask a dedicated hosted testnet agent to purchase it
+- the hosted demo payer is separate from the merchant and policy-limited; the browser never receives payment or capability keys
 - completed paid retries return the original scan and ToolLease instead of granting fresh authority
-- no HCS anchoring, Agent Kit plugin, hosted payer agent, or additional sponsor integration yet
+- browser-driven follow-up calls and attack controls are not wired yet; the local agent already proves them end to end
+- no HCS anchoring, Agent Kit plugin, or additional sponsor integration yet
 
 ## AI assistance
 

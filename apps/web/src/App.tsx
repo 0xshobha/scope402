@@ -1,6 +1,7 @@
 import { motion } from 'motion/react'
 import { useEffect, useState } from 'react'
 import { loadLiveState, publicApiUrl, type LiveState } from './api.js'
+import { DemoPage } from './DemoPage.js'
 
 const states = ['READY', 'PAYMENT REQUIRED', 'AGENT ACTION', 'SETTLED', 'SCAN COMPLETE', 'LEASE ACTIVE']
 
@@ -47,6 +48,7 @@ function StateRail() {
 }
 
 export function App() {
+  if (window.location.pathname.startsWith('/demo')) return <DemoPage />
   const [live, setLive] = useState<LiveState>({ state: 'waking' })
   const [checking, setChecking] = useState(true)
   const [refresh, setRefresh] = useState(0)
@@ -76,6 +78,7 @@ export function App() {
     <header className="site-header">
       <a className="brand" href="#top">SCOPE<span>402</span></a>
       <nav aria-label="Primary navigation">
+        <a href="/demo">LIVE DEMO</a>
         <a href="#mechanism">MECHANISM</a>
         <a href="#denials">DENIALS</a>
       </nav>
@@ -89,7 +92,8 @@ export function App() {
       <p className="lede">A real HBAR payment buys useful work. Scope402 turns that purchase into narrow,
         key-bound authority that expires.</p>
       <div className="hero-actions">
-        <a className="button primary" href="#proof">CHECK LIVE API STATUS</a>
+        <a className="button primary" href="/demo">RUN THE LIVE DEMO</a>
+        <a className="button" href="#proof">CHECK API STATUS</a>
         <a className="button" href={`${publicApiUrl}/.well-known/scope402`}
           target="_blank" rel="noreferrer">READ LIVE CONTRACT <span aria-hidden="true">↗</span></a>
       </div>
