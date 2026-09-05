@@ -9,7 +9,10 @@ and for how long; Scope402 represents that limited permission as a signed capabi
 The reference merchant, AuditLab, scans a public GitHub repository and grants the declared agent three signed
 calls to `finding_details` for five minutes.
 
-The locally implemented Tessera merchant reuses the same authorization kernel for a spatial resource: a principal purchases an `8 × 8` paint capability, then delegates a strictly narrower, conserved call budget to a different P-256 worker. Tessera is not yet part of the public browser demo or public payment proof.
+Tessera reuses the same authorization kernel for a spatial resource: a principal purchases an `8 × 8`
+paint capability, then delegates a strictly narrower, conserved call budget to a different P-256 worker.
+Its public browser flow can prepare and recover a real payment quote; a public Tessera settlement is not yet
+claimed as evidence.
 
 Public API: [scope402-auditlab.onrender.com](https://scope402-auditlab.onrender.com/health)
 
@@ -84,9 +87,12 @@ charging for every call or exposing a broad bearer credential:
 - locally tested Tessera `POST /v1/plots`, server-authoritative canvas, and atomic `place_pixel` execution
 - parent-signed Tessera attenuation to a distinct worker key with strict rectangle containment, immutable
   payment lineage, separate delegation replay counters, and conserved parent/child budgets
+- guarded Tessera browser orchestration with prepare-before-pay approval, refresh recovery, and fixed
+  server-generated delegation and attack actions
 
-AuditLab exposes `finding_details`; Tessera exposes `place_pixel`. Only AuditLab currently has a public,
-judge-runnable payment-to-denial demonstration.
+AuditLab exposes `finding_details`; Tessera exposes `place_pixel`. AuditLab has a public payment-to-denial
+proof. Tessera has a public, judge-runnable prepare flow; its first public paid run remains an explicit evidence
+gate.
 
 ## Public proof
 
@@ -182,8 +188,8 @@ immutable lineage, root expiry, budget conservation, and concurrent invocation/d
 - browser actions are fixed requests to the hosted agent; keys, lease tokens, signatures, and demo-control secrets
   remain outside the browser
 - no HCS anchoring, Agent Kit plugin, or additional sponsor integration yet
-- Tessera's paid-root, atomic pixel, and one-level delegation backends are locally tested; its hosted-agent
-  orchestration, browser UI, real public HBAR transaction, ENS, and WebMCP are not implemented or deployed yet
+- Tessera's paid-root, atomic pixel, one-level delegation, hosted-agent orchestration, and browser UI are
+  implemented and deployed; no public Tessera HBAR transaction, ENS, or WebMCP proof is claimed yet
 
 ## AI assistance
 

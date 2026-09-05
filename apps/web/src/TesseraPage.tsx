@@ -71,6 +71,29 @@ function CapabilityTree({ run }: { run?: TesseraRun }) {
   </section>
 }
 
+function PurchaseProof({ run }: { run?: TesseraRun }) {
+  const quote = run?.quote
+  const payment = run?.payment
+  return <section className="tessera-purchase-proof" aria-label="Tessera purchase terms and settlement">
+    <div className="purchase-proof-heading"><span className="section-label">PURCHASE POLICY</span>
+      <h2>Know the authority<br/><em>before paying.</em></h2></div>
+    <dl className="purchase-proof-grid">
+      <div><dt>PRICE</dt><dd className="mono">{quote ? `${quote.pricing.total_tinybars} TINYBARS` : '—'}</dd></div>
+      <div><dt>PAYER</dt><dd className="mono">{quote?.payer ?? '—'}</dd></div>
+      <div><dt>MERCHANT</dt><dd className="mono">{quote?.merchant ?? '—'}</dd></div>
+      <div><dt>NETWORK</dt><dd className="mono">{quote?.network?.toUpperCase() ?? '—'}</dd></div>
+      <div><dt>RESOURCE</dt><dd className="mono">{quote ? `${quote.canvas_id} · ${regionLabel(quote.region)}` : '—'}</dd></div>
+      <div><dt>POLICY HASH</dt><dd className="mono" title={quote?.policy_hash}>{short(quote?.policy_hash, 18, 10)}</dd></div>
+    </dl>
+    <div className={`settlement-proof ${payment ? 'settled' : ''}`}>
+      <span className="mono">{payment ? `${payment.amount_tinybars} TINYBARS SETTLED` :
+        quote ? 'NOT SETTLED · APPROVAL REQUIRED' : 'PREPARE A QUOTE TO INSPECT TERMS'}</span>
+      {payment && <a className="button" href={payment.hashscan_url} target="_blank" rel="noreferrer">
+        VERIFY ON HASHSCAN ↗</a>}
+    </div>
+  </section>
+}
+
 function CanvasPanel({ canvas, run, action }: {
   canvas?: TesseraCanvas
   run?: TesseraRun
@@ -116,6 +139,15 @@ export function TesseraPage() {
   const [agentHealth, setAgentHealth] = useState<'CHECKING' | 'ONLINE' | 'UNAVAILABLE'>('CHECKING')
   const [canvasHealth, setCanvasHealth] = useState<'CHECKING' | 'ONLINE' | 'UNAVAILABLE'>('CHECKING')
 
+  const resetRun = () => {
+    window.sessionStorage.removeItem(storedRunId)
+    window.sessionStorage.removeItem(storedRunToken)
+    setRun(undefined)
+    setRunId('')
+    setToken('')
+    setError('')
+  }
+
   const refresh = async (id = runId, credential = token) => {
     if (!id || !credential) return
     const [runResult, canvasResult] = await Promise.allSettled([
@@ -130,7 +162,6 @@ export function TesseraPage() {
       setAgentHealth('ONLINE')
       return
     }
-    setAgentHealth('UNAVAILABLE')
     throw runResult.reason
   }
 
@@ -174,9 +205,8 @@ export function TesseraPage() {
       )
       if (cancelled) return
       if (runResult.status === 'fulfilled') {
-        setRun(runResult.value); setAgentHealth('ONLINE')
+        setRun(runResult.value); setAgentHealth('ONLINE'); setError('')
       } else {
-        setAgentHealth('UNAVAILABLE')
         setError(runResult.reason instanceof Error ? runResult.reason.message : 'Tessera run refresh failed')
       }
       const delay = runResult.status === 'fulfilled' && runResult.value.state === 'COMPLETE' ? 5_000 : 2_000
@@ -246,6 +276,8 @@ export function TesseraPage() {
           {loading ? 'CONTACTING AGENT…' : runId ? 'RUN IN PROGRESS' :
             agentHealth === 'UNAVAILABLE' ? 'TESSERA AGENT UPDATE REQUIRED' :
             agentHealth === 'CHECKING' ? 'CHECKING TESSERA AGENT…' : 'START REAL TESSERA RUN'}</button>
+          {runId && (state === 'COMPLETE' || state === 'FAILED' || error.includes('DEMO_RUN_EXPIRED')) &&
+            <button className="button" type="button" onClick={resetRun}>START NEW RUN</button>}
           <a className="button" href={`${publicTesseraApiUrl}/v1/canvas`} target="_blank" rel="noreferrer">READ CANVAS ↗</a></div>
         <p className="tessera-boundary mono">PAYER: PLATFORM-FUNDED TESTNET · KEYS STAY SERVER-SIDE</p></div></section>
 
@@ -253,6 +285,8 @@ export function TesseraPage() {
       <div><small>RUN</small><strong className="mono">{runId ? short(runId) : 'NOT STARTED'}</strong></div>
       <div><small>POLICY HASH</small><strong className="mono">{short(run?.quote?.policy_hash ?? run?.root?.policy_hash, 14, 8)}</strong></div>
       <div><small>CANVAS</small><strong className="mono">{canvasHealth}</strong></div></div>
+
+    <PurchaseProof run={run} />
 
     <div className="tessera-main-grid"><CapabilityTree run={run} /><CanvasPanel canvas={canvas} run={run} action={action} /></div>
 

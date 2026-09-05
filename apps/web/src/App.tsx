@@ -90,6 +90,7 @@ export function App() {
       </a>
       <nav aria-label="Primary navigation">
         <a href="/demo">LIVE DEMO</a>
+        <a href="/tessera">TESSERA</a>
         <a href="#mechanism">MECHANISM</a>
         <a href="#denials">DENIALS</a>
       </nav>
@@ -104,6 +105,7 @@ export function App() {
         one tool, three calls, five minutes, usable only by the declared agent key.</p>
       <div className="hero-actions">
         <a className="button primary" href="/demo">RUN THE LIVE DEMO</a>
+        <a className="button" href="/tessera">EXPLORE DELEGATED AUTHORITY</a>
         <a className="button" href="#proof">CHECK API STATUS</a>
         <a className="button" href={`${publicApiUrl}/.well-known/scope402`}
           target="_blank" rel="noreferrer">READ LIVE CONTRACT <span aria-hidden="true">↗</span></a>

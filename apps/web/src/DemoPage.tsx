@@ -142,7 +142,7 @@ export function DemoPage() {
   return <main className="demo-shell">
     <header className="site-header">
       <a className="brand" href="/">SCOPE<span>402</span></a>
-      <a className="back-link mono" href="/">← BACK TO THE IDEA</a>
+      <nav aria-label="Demo navigation"><a href="/">THE IDEA</a><a href="/tessera">TESSERA</a></nav>
       <div className="mode"><span className="status-dot online" /> DEMO AGENT · TESTNET</div>
     </header>
 
