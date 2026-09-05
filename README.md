@@ -46,6 +46,7 @@ The browser is not trusted with either the Hedera payer key or the subject priva
 - RFC 8785/JCS argument hashing
 - atomic counter and budget consumption in PostgreSQL
 - explicit wrong-key, replay, expiry, and concurrent-counter tests
+- responsive browser homepage backed by the live health and discovery endpoints
 
 There is intentionally one merchant tool: `finding_details`.
 
@@ -110,6 +111,12 @@ Run the paid client:
 node --env-file=/path/to/agent.env apps/agent/dist/index.js https://github.com/expressjs/express
 ```
 
+Run the browser homepage locally:
+
+```bash
+corepack pnpm --filter @scope402/web dev
+```
+
 ## Verify
 
 ```bash
@@ -126,9 +133,10 @@ corepack pnpm build
 - public GitHub repositories only
 - one deterministic repository check and one follow-up tool
 - quotes bind an exact GitHub commit and meter bounded root-file workload
-- API is public; the payer agent remains local so its keys remain outside the service
+- API is public; the browser homepage currently runs locally
+- the payer agent remains local, so the browser cannot yet initiate a paid run
 - completed paid retries return the original scan and ToolLease instead of granting fresh authority
-- no HCS anchoring, Agent Kit plugin, browser UI, or additional sponsor integration yet
+- no HCS anchoring, Agent Kit plugin, hosted payer agent, or additional sponsor integration yet
 
 ## AI assistance
 

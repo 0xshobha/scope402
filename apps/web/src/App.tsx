@@ -13,16 +13,26 @@ const denials = [
     copy: 'The server enforces expiry from persisted state. A valid signature cannot revive a dead lease.' },
 ]
 
-function StatusRail({ live }: { live: LiveState }) {
+function StatusRail({ live, checking, onRetry }: {
+  live: LiveState
+  checking: boolean
+  onRetry: () => void
+}) {
   const discovery = live.discovery
+  const unavailable = checking || live.state === 'waking' ? 'WAITING FOR API' : 'UNAVAILABLE'
   return <div className="proof-strip" aria-label="Live Scope402 service status">
     <div><span className={`status-dot ${live.state}`} />
-      <small>API</small><strong>{live.state === 'online' ? 'ONLINE' : live.state.toUpperCase()}</strong></div>
+      <small>API</small><strong>{checking ? 'CHECKING' : live.state === 'online' ? 'ONLINE' : live.state.toUpperCase()}</strong>
+      {live.state === 'online' && live.latencyMs !== undefined
+        ? <button className="latency mono" type="button" onClick={onRetry}>{live.latencyMs} MS · REFRESH</button>
+        : <button className="retry mono" type="button" onClick={onRetry} disabled={checking}>
+          {checking ? 'CONTACTING…' : 'RETRY NOW'}</button>}</div>
     <div><small>PAID RESOURCE</small><strong className="mono">
-      {discovery?.resources.repository_scan.path ?? 'CHECKING…'}</strong></div>
+      {live.state === 'online' ? discovery?.resources.repository_scan.path : unavailable}</strong></div>
     <div><small>AUTHORITY</small><strong className="mono">
-      {discovery?.authorization.tools[0]?.id ?? 'CHECKING…'}</strong></div>
-    <div><small>NETWORK</small><strong className="mono">{discovery?.network ?? 'CHECKING…'}</strong></div>
+      {live.state === 'online' ? discovery?.authorization.tools[0]?.id : unavailable}</strong></div>
+    <div><small>NETWORK</small><strong className="mono">
+      {live.state === 'online' ? discovery?.network : unavailable}</strong></div>
   </div>
 }
 
@@ -38,7 +48,30 @@ function StateRail() {
 
 export function App() {
   const [live, setLive] = useState<LiveState>({ state: 'waking' })
-  useEffect(() => { void loadLiveState().then(setLive) }, [])
+  const [checking, setChecking] = useState(true)
+  const [refresh, setRefresh] = useState(0)
+  useEffect(() => {
+    let cancelled = false
+    let retry: ReturnType<typeof setTimeout> | undefined
+    setChecking(true)
+    void loadLiveState().then((result) => {
+      if (cancelled) return
+      setLive(result)
+      setChecking(false)
+      if (result.state !== 'online') {
+        const delay = Math.min(5_000 * 2 ** Math.min(refresh, 2), 20_000)
+        retry = setTimeout(() => setRefresh((value) => value + 1), delay)
+      }
+    })
+    return () => {
+      cancelled = true
+      if (retry) clearTimeout(retry)
+    }
+  }, [refresh])
+  const retryStatus = () => {
+    setLive({ state: 'waking' })
+    setRefresh((value) => value + 1)
+  }
   return <main>
     <header className="site-header">
       <a className="brand" href="#top">SCOPE<span>402</span></a>
@@ -56,14 +89,14 @@ export function App() {
       <p className="lede">A real HBAR payment buys useful work. Scope402 turns that purchase into narrow,
         key-bound authority that expires.</p>
       <div className="hero-actions">
-        <a className="button primary" href="#proof">EXPLORE THE LIVE SYSTEM</a>
+        <a className="button primary" href="#proof">CHECK LIVE API STATUS</a>
         <a className="button" href={`${publicApiUrl}/.well-known/scope402`}
           target="_blank" rel="noreferrer">READ LIVE CONTRACT <span aria-hidden="true">↗</span></a>
       </div>
       <div className="hero-index mono" aria-hidden="true"><span>PAY</span><span>WORK</span><span>AUTHORIZE</span></div>
     </section>
 
-    <div id="proof"><StatusRail live={live} /></div>
+    <div id="proof"><StatusRail live={live} checking={checking} onRetry={retryStatus} /></div>
 
     <section className="contrast" id="mechanism">
       <article className="problem-card">

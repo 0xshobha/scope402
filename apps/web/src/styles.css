@@ -65,6 +65,11 @@ main { width: min(1180px, calc(100% - 32px)); margin: 0 auto; padding-bottom: 32
 .proof-strip > div:last-child { border-right: 0; }
 .proof-strip > div:first-child { display: grid; grid-template-columns: auto 1fr; column-gap: 9px; align-items: start; }
 .proof-strip > div:first-child strong { grid-column: 1 / -1; align-self: end; }
+.proof-strip button { width: max-content; padding: 0; border: 0; border-bottom: 1px solid currentColor;
+  background: transparent; color: #5f5b53; cursor: pointer; font-size: 9px; }
+.proof-strip button:disabled { cursor: wait; opacity: .65; }
+.proof-strip button:focus-visible { outline: 2px solid var(--violet); outline-offset: 3px; }
+.proof-strip .retry, .proof-strip .latency { grid-column: 1 / -1; margin-top: 10px; }
 .proof-strip small { font: 650 10px/1 "JetBrains Mono Variable", monospace; color: #5f5b53; letter-spacing: .08em; }
 .proof-strip strong { font-size: 15px; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
 
