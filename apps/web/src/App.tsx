@@ -2,6 +2,7 @@ import { motion } from 'motion/react'
 import { useEffect, useState } from 'react'
 import { loadLiveState, publicApiUrl, type LiveState } from './api.js'
 import { DemoPage } from './DemoPage.js'
+import { TesseraPage } from './TesseraPage.js'
 
 const states = ['DISCOVER', 'PAY', 'WORK', 'AUTHORITY']
 
@@ -21,19 +22,23 @@ function StatusRail({ live, checking, onRetry }: {
 }) {
   const discovery = live.discovery
   const unavailable = checking || live.state === 'waking' ? 'WAITING FOR API' : 'UNAVAILABLE'
+  const findingTool = discovery?.authorization.tools.find((tool) => tool.id === 'finding_details')
   return <div className="proof-strip" aria-label="Live Scope402 service status">
     <div><span className={`status-dot ${live.state}`} />
-      <small>API</small><strong>{checking ? 'CHECKING' : live.state === 'online' ? 'ONLINE' : live.state.toUpperCase()}</strong>
+      <small>HEALTH</small><strong>{checking ? 'CHECKING' : live.health === 'online' ? 'ONLINE' : live.state.toUpperCase()}</strong>
       {live.state === 'online' && live.latencyMs !== undefined
         ? <button className="latency mono" type="button" onClick={onRetry}>{live.latencyMs} MS · REFRESH</button>
         : <button className="retry mono" type="button" onClick={onRetry} disabled={checking}>
           {checking ? 'CONTACTING…' : 'RETRY NOW'}</button>}</div>
+    <div><small>DISCOVERY</small><strong className="mono">
+      {checking ? 'CHECKING' : live.contract === 'online' ? 'ONLINE' : unavailable}</strong></div>
     <div><small>PAID RESOURCE</small><strong className="mono">
-      {live.state === 'online' ? discovery?.resources.repository_scan.path : unavailable}</strong></div>
+      {live.contract === 'online' ? discovery?.resources.repository_scan.path : unavailable}</strong></div>
     <div><small>AUTHORITY</small><strong className="mono">
-      {live.state === 'online' ? discovery?.authorization.tools[0]?.id : unavailable}</strong></div>
+      {live.contract === 'online' ? findingTool?.id : unavailable}</strong></div>
     <div><small>NETWORK</small><strong className="mono">
-      {live.state === 'online' ? discovery?.network : unavailable}</strong></div>
+      {live.contract === 'online' ? discovery?.network : unavailable}</strong></div>
+    {live.message && <p className="proof-message mono">{live.message}</p>}
   </div>
 }
 
@@ -48,8 +53,9 @@ function StateRail() {
 }
 
 export function App() {
+  if (window.location.pathname.startsWith('/tessera')) return <TesseraPage />
   if (window.location.pathname.startsWith('/demo')) return <DemoPage />
-  const [live, setLive] = useState<LiveState>({ state: 'waking' })
+  const [live, setLive] = useState<LiveState>({ state: 'waking', health: 'unavailable', contract: 'unavailable' })
   const [checking, setChecking] = useState(true)
   const [refresh, setRefresh] = useState(0)
   useEffect(() => {
@@ -71,7 +77,7 @@ export function App() {
     }
   }, [refresh])
   const retryStatus = () => {
-    setLive({ state: 'waking' })
+    setLive({ state: 'waking', health: 'unavailable', contract: 'unavailable' })
     setRefresh((value) => value + 1)
   }
   return <main>
@@ -94,8 +100,8 @@ export function App() {
       <div className="eyebrow">HEDERA TESTNET · X402 V2 · AUDITLAB</div>
       <motion.h1 initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.35 }}>Payment is not<br/><em>authorization.</em></motion.h1>
-      <p className="lede">One HBAR payment buys useful work and a five-minute, three-call capability to one tool,
-        usable only by the declared P-256 subject key.</p>
+      <p className="lede">One metered Hedera testnet payment buys useful work and limited permission afterward:
+        one tool, three calls, five minutes, usable only by the declared agent key.</p>
       <div className="hero-actions">
         <a className="button primary" href="/demo">RUN THE LIVE DEMO</a>
         <a className="button" href="#proof">CHECK API STATUS</a>
@@ -109,16 +115,17 @@ export function App() {
 
     <section className="protocol-gap">
       <span className="section-label">THE GAP</span>
-      <div><strong className="mono">x402</strong><p>Settles the paid request.</p></div>
-      <div><strong className="mono">Scope402</strong><p>Enforces which subject may use which tool, how often, and until when.</p></div>
+      <div><strong className="mono">x402</strong><p>Proves that the payment settled.</p></div>
+      <div><strong className="mono">Scope402</strong><p>Enforces who may act, what they may do, how many times, and until when.</p></div>
     </section>
 
     <section className="contrast" id="mechanism">
       <article className="problem-card">
         <span className="section-label">THE BEARER PROBLEM</span>
         <h2>Hold the key.<br/>Hold everything.</h2>
-        <div className="token mono">sk_live_••••••••••••</div>
-        <p>Copied credentials inherit the same authority. No subject binding. No call budget. No natural end.</p>
+        <div className="token mono" aria-label="Example bearer credential">bearer_token_••••••••</div>
+        <p>A bearer credential carries whatever authority the server grants it. Whoever copies it can attempt
+          the same actions. No subject binding. No call budget. No natural end.</p>
       </article>
       <article className="lease-card">
         <span className="section-label">WHAT THE PAYMENT BUYS</span>
@@ -149,7 +156,7 @@ export function App() {
         <div className="meter-head"><span className="section-label">BOUNDED METER</span><strong>ROOT FILES</strong></div>
         <div className="formula mono"><span>BASE</span><b>+</b><span>UNIT × ROOT FILES</span><b>≤</b><span>CAP</span></div>
         <div className="binding-list mono">
-          <span>REPOSITORY</span><strong>owner / repo</strong>
+          <span>RESOURCE</span><strong>BOUND GITHUB REPOSITORY</strong>
           <span>COMMIT</span><strong>immutable SHA</strong>
           <span>SUBJECT</span><strong>P-256 fingerprint</strong>
           <span>PAYMENT</span><strong>HBAR tinybars</strong>
@@ -159,7 +166,7 @@ export function App() {
 
     <section className="denial-section" id="denials">
       <div className="section-heading"><span className="section-label">THE PROOF IS IN THE NO</span>
-        <h2>Payment succeeds.<br/>The attacks still fail.</h2></div>
+        <h2>Payment succeeds.<br/>These authority attacks still fail.</h2></div>
       <div className="denial-grid">
         {denials.map((denial, index) => <motion.article key={denial.code}
           initial={{ opacity: 0, y: 16 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}
@@ -177,7 +184,9 @@ export function App() {
       <div className="custody-grid">
         <article><span>01</span><h3>PAYER AGENT</h3><p>Evaluates the quote, applies a spend policy, and signs the HBAR transfer.</p></article>
         <article><span>02</span><h3>AUDITLAB</h3><p>Settles through Blocky402, scans the bound commit, and signs the ToolLease.</p></article>
-        <article><span>03</span><h3>HEDERA</h3><p>Records the real transfer. HashScan proves money moved; it does not grant authority.</p></article>
+        <article><span>03</span><h3>HEDERA</h3><p>Records the real transfer. HashScan proves money moved; it does not grant authority.</p>
+          <a className="evidence-link mono" href="https://hashscan.io/testnet/transaction/0.0.7162784-1788595940-223982333"
+            target="_blank" rel="noreferrer">VERIFIED TESTNET SETTLEMENT ↗</a></article>
       </div>
     </section>
 
@@ -185,7 +194,8 @@ export function App() {
       <span className="section-label">CURRENT BOUNDARY</span>
       <h2>Real mechanism. Narrow merchant.</h2>
       <p>Public GitHub repositories, bounded root-file metering, Hedera testnet, one deterministic finding,
-        and one lease-protected follow-up tool. No browser keys. No smart contract. No fake settlement.</p>
+        and one lease-protected follow-up tool. No browser keys. No smart contract required for this enforcement
+        path. No fake settlement.</p>
     </section>
 
     <footer><span>Scope402 · AuditLab</span><a href="https://github.com/0xshobha/scope402" target="_blank" rel="noreferrer">SOURCE ↗</a>

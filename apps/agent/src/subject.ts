@@ -45,12 +45,23 @@ export function signInvocationWithKey(invocation: object, key: KeyObject) {
   return { signature: `${header}.${payload}.${signature}`, subjectPubkey: subject_pubkey }
 }
 
+function signJws(value: object, subjectPubkey: string, key: KeyObject, typ: string) {
+  const header = Buffer.from(canonicalJson({ alg: 'ES256', subject_pubkey: subjectPubkey, typ })).toString('base64url')
+  const payload = Buffer.from(canonicalJson(value)).toString('base64url')
+  const signature = sign('sha256', Buffer.from(`${header}.${payload}`),
+    { key, dsaEncoding: 'ieee-p1363' }).toString('base64url')
+  return `${header}.${payload}.${signature}`
+}
+
 function subjectFromKey(key: KeyObject) {
   const subjectPubkey = createPublicKey(key).export({ type: 'spki', format: 'der' }).toString('base64url')
   return {
     subjectPubkey,
     sign(invocation: object) {
       return signInvocationWithKey(invocation, key).signature
+    },
+    signDelegation(terms: object) {
+      return signJws(terms, subjectPubkey, key, 'scope402-delegation+jws')
     },
   }
 }
@@ -63,6 +74,21 @@ export async function persistentSubject(): Promise<AgentSubject> {
 
 export function ephemeralSubject(): AgentSubject {
   return subjectFromKey(generateKeyPairSync('ec', { namedCurve: 'prime256v1' }).privateKey)
+}
+
+export function configuredSubject(name: string): AgentSubject {
+  const pem = process.env[name]
+  if (!pem) throw new Error(`Set ${name} to a P-256 private key PEM`)
+  let key: KeyObject
+  try {
+    key = createPrivateKey(pem)
+    if (key.asymmetricKeyType !== 'ec' || key.asymmetricKeyDetails?.namedCurve !== 'prime256v1') {
+      throw new Error('not P-256')
+    }
+  } catch {
+    throw new Error(`${name} must contain a valid P-256 private key PEM`)
+  }
+  return subjectFromKey(key)
 }
 
 export async function signInvocation(invocation: object) {

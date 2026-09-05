@@ -5,6 +5,9 @@ import { DemoRunService, type DemoRunLimits } from '../src/demo-runs.js'
 import type { PreparedScan, ScanResult } from '../src/purchase.js'
 import { ephemeralSubject } from '../src/subject.js'
 import type { DemoActionResult } from '../src/capability-demo.js'
+import { HostedAgentGuard } from '../src/hosted-payment-guard.js'
+import { TesseraRunService } from '../src/tessera-runs.js'
+import type { PreparedPlot, TesseraPlotResult } from '../src/tessera-purchase.js'
 
 const limits: DemoRunLimits = { runTtlMs: 240_000, perIpRunsPerHour: 3,
   globalRunsPerHour: 50, globalApprovalsPerHour: 20, maxHourlySpendTinybars: 3_000_000n,
@@ -123,4 +126,56 @@ test('capability action boundary accepts no browser-controlled invocation fields
   const unknown = await app.request(`/demo/runs/${body.run.run_id}/actions/escalate`, {
     method: 'POST', headers: { Authorization: `Bearer ${body.run_token}` }, body: '{}' })
   assert.equal(unknown.status, 404)
+})
+
+test('Tessera HTTP boundary accepts no browser-controlled payment or authority fields', async () => {
+  const data = fixture()
+  const rootSubject = ephemeralSubject()
+  const region = { kind: 'canvas-region' as const, canvasId: 'main', x: 0, y: 0,
+    width: 8, height: 8 }
+  const prepared = { ...data.prepared, requestUrl: 'https://auditlab.example/v1/plots',
+    paymentUrl: 'https://auditlab.example/v1/plots?quote_id=123e4567-e89b-42d3-a456-426614174002',
+    subject: rootSubject, quote: { canvas_id: 'main' as const, region,
+      pricing: { base_tinybars: '50000', per_call_tinybars: '500', calls: 12 as const,
+        total_tinybars: '50500' }, policy_hash: `sha256:${'a'.repeat(64)}` } } as unknown as PreparedPlot
+  const result = { status: 'complete' as const, canvas_id: 'main' as const, region,
+    payment: data.result.payment as TesseraPlotResult['payment'], lease: {
+      token: 'private-root-token-that-is-never-public-123456789', lease_id: 'root',
+      subject_pubkey: rootSubject.subjectPubkey, aud: 'https://auditlab.example/v1/tools',
+      catalogue_hash: 'catalogue', tool_ids: ['place_pixel'] as ['place_pixel'], max_calls: 12 as const,
+      exp: 9_999_999_999, offer_id: '123e4567-e89b-42d3-a456-426614174002',
+      hedera_tx_id: data.result.payment.transaction, policy_hash: prepared.quote.policy_hash,
+      resource: region, root_lease_id: 'root' } } satisfies TesseraPlotResult
+  const guard = new HostedAgentGuard(limits)
+  const audit = new DemoRunService({ prepare: async () => data.prepared,
+    approve: async () => ({ result: data.result }), payerBalanceTinybars: async () => 10_000_000n,
+  }, limits, guard)
+  const tessera = new TesseraRunService({
+    prepare: async (subject) => ({ ...prepared, subject }), approve: async () => ({ result }),
+    payerBalanceTinybars: async () => 10_000_000n,
+    createCapabilitySession: () => ({ root: () => ({ lease_id: 'root', subject: rootSubject.subjectPubkey,
+      resource: region, tool_ids: ['place_pixel'], max_calls: 12, remaining_calls: 12,
+      exp: result.lease.exp, root_lease_id: 'root', payment_quote_id: result.lease.offer_id,
+      hedera_tx_id: result.lease.hedera_tx_id, policy_hash: result.lease.policy_hash }),
+    child: () => undefined, execute: async () => { throw new Error('not reached') } }),
+  }, limits, guard)
+  const app = createDemoAgentApp(audit, new Set(), 'none', tessera)
+  const injectedCreate = await app.request('/tessera/runs', { method: 'POST',
+    headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ amount: '1' }) })
+  assert.equal(injectedCreate.status, 400)
+  const created = await app.request('/tessera/runs', { method: 'POST', body: '{}' })
+  assert.equal(created.status, 202)
+  const run = await created.json() as { run: { run_id: string }; run_token: string }
+  const noToken = await app.request(`/tessera/runs/${run.run.run_id}`)
+  assert.equal(noToken.status, 404)
+  const injectedApproval = await app.request(`/tessera/runs/${run.run.run_id}/approve`, {
+    method: 'POST', headers: { Authorization: `Bearer ${run.run_token}` },
+    body: JSON.stringify({ payment: 'caller-controlled' }),
+  })
+  assert.equal(injectedApproval.status, 400)
+  const injectedAction = await app.request(`/tessera/runs/${run.run.run_id}/actions/delegate`, {
+    method: 'POST', headers: { Authorization: `Bearer ${run.run_token}` },
+    body: JSON.stringify({ lease: 'caller-controlled', x: 31 }),
+  })
+  assert.equal(injectedAction.status, 400)
 })

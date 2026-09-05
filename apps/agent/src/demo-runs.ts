@@ -1,8 +1,10 @@
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto'
 import type { DemoActionName, DemoActionResult, DemoCapabilitySession } from './capability-demo.js'
 import type { PreparedScan, ScanResult } from './purchase.js'
+import { HostedAgentGuard, HostedAgentLimitError } from './hosted-payment-guard.js'
+import { ExactPaymentDeliveryError } from './payment-client.js'
 
-export type DemoState = 'PAYMENT_REQUIRED' | 'SETTLING' | 'COMPLETE' | 'FAILED'
+export type DemoState = 'PAYMENT_REQUIRED' | 'PAYMENT_RECOVERY' | 'SETTLING' | 'COMPLETE' | 'FAILED'
 
 export type PublicRun = {
   run_id: string
@@ -38,6 +40,7 @@ type InternalRun = {
   capability?: DemoCapabilitySession
   actionAttempts: Map<DemoActionName, Promise<DemoActionResult>>
   approval?: Promise<PublicRun>
+  paymentAttempted?: boolean
 }
 
 export class DemoRunError extends Error {
@@ -96,67 +99,62 @@ function publicResult(result: ScanResult): NonNullable<PublicRun['result']> {
 
 export class DemoRunService {
   private readonly runs = new Map<string, InternalRun>()
-  private readonly runAttempts = new Map<string, number[]>()
-  private readonly globalRuns: number[] = []
-  private readonly approvals: Array<{ at: number; amount: bigint }> = []
+  private readonly hostedGuard: HostedAgentGuard
 
   constructor(private readonly dependencies: DemoRunDependencies,
-    private readonly limits: DemoRunLimits) {}
+    private readonly limits: DemoRunLimits, hostedGuard?: HostedAgentGuard) {
+    this.hostedGuard = hostedGuard ?? new HostedAgentGuard(limits, () => this.now())
+  }
 
   private now() {
     return this.dependencies.now?.() ?? Date.now()
   }
 
   private trim(now: number) {
-    for (const [ip, values] of this.runAttempts) {
-      const current = values.filter((value) => value > now - hourMs)
-      if (current.length) this.runAttempts.set(ip, current)
-      else this.runAttempts.delete(ip)
-    }
-    while (this.approvals[0] && this.approvals[0].at <= now - hourMs) this.approvals.shift()
-    while (this.globalRuns[0] && this.globalRuns[0] <= now - hourMs) this.globalRuns.shift()
     for (const [id, run] of this.runs) {
       if (Date.parse(run.public.expires_at) + hourMs < now) this.runs.delete(id)
     }
   }
 
-  private assertApprovalCapacity(now: number, amount: bigint) {
-    this.trim(now)
-    if (this.approvals.length >= this.limits.globalApprovalsPerHour ||
-        this.approvals.reduce((total, item) => total + item.amount, 0n) + amount >
-          this.limits.maxHourlySpendTinybars) {
-      throw new DemoRunError('DEMO_SPEND_LIMITED', 429, 'Hosted demo-agent spend limit reached')
+  private assertApprovalCapacity(amount: bigint) {
+    try {
+      this.hostedGuard.assertPaymentCapacity(amount)
+    } catch (error) {
+      if (error instanceof HostedAgentLimitError) {
+        throw new DemoRunError('DEMO_SPEND_LIMITED', 429, error.message)
+      }
+      throw error
     }
-  }
-
-  private reserveApproval(amount: bigint) {
-    const now = this.now()
-    this.assertApprovalCapacity(now, amount)
-    this.approvals.push({ at: now, amount })
   }
 
   async create(repoUrl: string, ip: string) {
     const now = this.now()
     this.trim(now)
-    const attempts = this.runAttempts.get(ip) ?? []
-    if (attempts.length >= this.limits.perIpRunsPerHour ||
-        this.globalRuns.length >= this.limits.globalRunsPerHour) {
-      throw new DemoRunError('DEMO_RATE_LIMITED', 429, 'Too many demo runs from this address')
-    }
-    const active = [...this.runs.values()].some((run) => run.ip === ip &&
-      !['COMPLETE', 'FAILED'].includes(run.public.state) && Date.parse(run.public.expires_at) > now)
-    if (active) throw new DemoRunError('DEMO_RUN_ACTIVE', 409, 'This visitor already has an active demo run')
-    attempts.push(now)
-    this.globalRuns.push(now)
-    this.runAttempts.set(ip, attempts)
-    const prepared = await this.dependencies.prepare(repoUrl)
     const runId = randomUUID()
     const token = randomBytes(32).toString('base64url')
+    const expiresAt = now + this.limits.runTtlMs
+    try {
+      this.hostedGuard.acquireRun(ip, runId, expiresAt)
+    } catch (error) {
+      if (error instanceof HostedAgentLimitError) {
+        const active = error.message.includes('active')
+        throw new DemoRunError(active ? 'DEMO_RUN_ACTIVE' : 'DEMO_RATE_LIMITED',
+          active ? 409 : 429, error.message)
+      }
+      throw error
+    }
+    let prepared: PreparedScan
+    try {
+      prepared = await this.dependencies.prepare(repoUrl)
+    } catch (error) {
+      this.hostedGuard.releaseRun(runId)
+      throw error
+    }
     const publicRun: PublicRun = {
       run_id: runId,
       state: 'PAYMENT_REQUIRED',
       created_at: new Date(now).toISOString(),
-      expires_at: new Date(now + this.limits.runTtlMs).toISOString(),
+      expires_at: new Date(expiresAt).toISOString(),
       mode: 'hosted-testnet-agent',
       quote: {
         repository: prepared.quote.repository,
@@ -197,31 +195,56 @@ export class DemoRunService {
     }
     if (run.approval) return run.approval
     const amount = BigInt(run.prepared.terms.amount)
-    const now = this.now()
-    this.assertApprovalCapacity(now, amount)
+    if (!run.paymentAttempted) this.assertApprovalCapacity(amount)
     run.public.state = 'SETTLING'
     run.approval = (async () => {
       try {
-        const balance = await this.dependencies.payerBalanceTinybars()
-        if (balance - amount < this.limits.minimumBalanceTinybars) {
-          throw new DemoRunError('DEMO_BALANCE_FLOOR', 409, 'Hosted demo-agent balance floor reached')
+        let reservation: string | undefined
+        if (!run.paymentAttempted) {
+          const balance = await this.dependencies.payerBalanceTinybars()
+          try {
+            reservation = this.hostedGuard.reservePayment(run.prepared.payer, amount, balance,
+              this.limits.minimumBalanceTinybars)
+          } catch (error) {
+            if (error instanceof HostedAgentLimitError) {
+              const balanceFloor = error.message.includes('balance floor')
+              throw new DemoRunError(balanceFloor ? 'DEMO_BALANCE_FLOOR' : 'DEMO_SPEND_LIMITED',
+                balanceFloor ? 409 : 429, error.message)
+            }
+            throw error
+          }
+          run.paymentAttempted = true
         }
-        this.reserveApproval(amount)
-        const approved = await this.dependencies.approve(run.prepared)
+        let approved: Approval
+        try {
+          approved = await this.dependencies.approve(run.prepared)
+        } finally {
+          if (reservation) this.hostedGuard.finishPayment(reservation)
+        }
         run.result = approved.result
         if (approved.result.findings.length && this.dependencies.createCapabilitySession) {
           run.capability = this.dependencies.createCapabilitySession(run.prepared, approved.result)
         }
         run.public.state = 'COMPLETE'
         run.public.result = publicResult(approved.result)
+        run.public.error = undefined
+        this.hostedGuard.releaseRun(run.public.run_id)
         return structuredClone(run.public)
       } catch (error) {
         this.dependencies.logError?.(error instanceof Error ? error.message : 'Unknown hosted demo-agent failure')
+        if (error instanceof ExactPaymentDeliveryError) {
+          run.approval = undefined
+          run.public.state = 'PAYMENT_RECOVERY'
+          run.public.error = { code: 'DEMO_PAYMENT_AMBIGUOUS',
+            message: 'Payment delivery was ambiguous. Retry recovery with the same signed Hedera transaction.' }
+          throw new DemoRunError('DEMO_PAYMENT_AMBIGUOUS', 502, run.public.error.message)
+        }
         run.public.state = 'FAILED'
         run.public.error = {
           code: error instanceof DemoRunError ? error.code : 'DEMO_PAYMENT_FAILED',
           message: error instanceof Error ? error.message : 'Hosted demo-agent failed',
         }
+        this.hostedGuard.releaseRun(run.public.run_id)
         if (error instanceof DemoRunError) throw error
         throw new DemoRunError('DEMO_PAYMENT_FAILED', 502, 'Hosted demo-agent could not complete payment')
       }

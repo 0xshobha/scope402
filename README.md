@@ -2,7 +2,12 @@
 
 **Payment is not authorization.**
 
-Scope402 is an x402 service that accepts HBAR for useful work, then issues a short-lived capability describing what the payer may do afterward. The reference merchant, AuditLab, scans a public GitHub repository and grants the paying agent three signed calls to `finding_details` for five minutes.
+Scope402 is a payment-and-permission layer for AI agents. An agent can pay HBAR for useful work without
+receiving unlimited access afterward. Each purchase defines who may act, what they may do, how many times,
+and for how long; Scope402 represents that limited permission as a signed capability.
+
+The reference merchant, AuditLab, scans a public GitHub repository and grants the declared agent three signed
+calls to `finding_details` for five minutes.
 
 The locally implemented Tessera merchant reuses the same authorization kernel for a spatial resource: a principal purchases an `8 × 8` paint capability, then delegates a strictly narrower, conserved call budget to a different P-256 worker. Tessera is not yet part of the public browser demo or public payment proof.
 
@@ -12,7 +17,8 @@ Public web: [scope402.onrender.com](https://scope402.onrender.com)
 
 ## Why
 
-An x402 settlement proves that money moved. It does not make a bearer credential safe to steal, stop a paid action from being replayed, or define a budget for later calls. Scope402 keeps those concerns separate:
+An x402 settlement proves that money moved. It does not decide what the buyer may do afterward. Scope402
+connects the purchase to limited permission while keeping payment and authorization separate:
 
 ```text
 Scope402 Agent                 AuditLab                     Hedera
@@ -36,6 +42,24 @@ Scope402 Agent                 AuditLab                     Hedera
 ```
 
 The browser is not trusted with either the Hedera payer key or the subject private key. The payer is a separate Node.js process. The merchant never pays itself.
+
+## Use cases
+
+Scope402 is useful when one payment should unlock several narrowly authorized follow-up actions instead of
+charging for every call or exposing a broad bearer credential:
+
+- **Paid developer tools:** purchase a repository scan, then use the resulting capability for finding details,
+  report export, or remediation actions within its declared tool, call, resource, and time limits.
+- **Browser and agent tools:** let an agent purchase a short working session for specific actions such as search,
+  booking, submission, or editing without placing payment or capability keys in the browser.
+- **AI APIs:** sell a bounded analysis package or temporary access to selected models and tools instead of an
+  open-ended subscription or permanent API key.
+- **Multi-agent workflows:** allow a principal agent to delegate a smaller resource scope, shorter lifetime, and
+  conserved call budget to a worker without sharing the payment wallet or root private key.
+- **Cloud and DevOps operations:** authorize narrowly scoped actions such as reading one environment's logs,
+  restarting one service, or performing one deployment for a limited period.
+- **Data and research access:** grant temporary access to specific datasets, query types, and usage budgets after
+  payment while keeping later requests independently authorized.
 
 ## Implemented
 

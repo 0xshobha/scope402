@@ -20,6 +20,25 @@ export const SCOPE402_EXTENSION_SCHEMA = {
   },
 } as const
 
+export const TESSERA_SCOPE402_EXTENSION_SCHEMA = {
+  type: 'object', additionalProperties: false,
+  required: ['version', 'subject', 'audience', 'resource', 'tools', 'maxCalls', 'ttlSeconds', 'policyHash'],
+  properties: {
+    version: { const: 1 },
+    subject: { type: 'object', additionalProperties: false, required: ['scheme', 'publicKey'],
+      properties: { scheme: { const: 'p256' }, publicKey: { type: 'string' } } },
+    audience: { type: 'string', format: 'uri' },
+    resource: { type: 'object', additionalProperties: false,
+      required: ['kind', 'canvasId', 'x', 'y', 'width', 'height'],
+      properties: { kind: { const: 'canvas-region' }, canvasId: { type: 'string' },
+        x: { type: 'integer', minimum: 0 }, y: { type: 'integer', minimum: 0 },
+        width: { type: 'integer', minimum: 1 }, height: { type: 'integer', minimum: 1 } } },
+    tools: { type: 'array', minItems: 1, uniqueItems: true, items: { type: 'string' } },
+    maxCalls: { type: 'integer', minimum: 1 }, ttlSeconds: { type: 'integer', minimum: 1 },
+    policyHash: { type: 'string', pattern: '^sha256:[0-9a-f]{64}$' },
+  },
+} as const
+
 type ExpectedScope = { subjectPubkey: string; repository: string; commitSha: string; audience: string }
 
 function hasExactKeys(value: unknown, keys: string[]) {
@@ -50,6 +69,46 @@ export function assertScope402Policy(required: { extensions?: Record<string, unk
       info.tools.length !== 1 || info.tools[0] !== 'finding_details' || info.maxCalls !== 3 ||
       info.ttlSeconds !== 300 || info.policyHash !== hash) {
     throw new Error('Scope402 capability policy is missing or inconsistent with the quoted purchase')
+  }
+  return info
+}
+
+export type CanvasRegion = {
+  kind: 'canvas-region'
+  canvasId: string
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+export function assertTesseraScope402Policy(
+  required: { extensions?: Record<string, unknown> | null },
+  expected: { subjectPubkey: string; audience: string; resource: CanvasRegion },
+) {
+  const extension = required.extensions?.scope402 as Record<string, unknown> | undefined
+  const info = extension?.info as Record<string, unknown> | undefined
+  const subject = info?.subject as Record<string, unknown> | undefined
+  const resource = info?.resource as Record<string, unknown> | undefined
+  const policy = info && {
+    version: info.version, subject: info.subject, audience: info.audience, resource: info.resource,
+    tools: info.tools, maxCalls: info.maxCalls, ttlSeconds: info.ttlSeconds,
+  }
+  const hash = policy ? `sha256:${createHash('sha256').update(canonicalJson(policy)).digest('hex')}` : ''
+  if (!hasExactKeys(required.extensions, ['scope402']) ||
+      !hasExactKeys(extension, ['info', 'schema']) ||
+      !hasExactKeys(info, ['version', 'subject', 'audience', 'resource', 'tools', 'maxCalls', 'ttlSeconds', 'policyHash']) ||
+      !hasExactKeys(subject, ['scheme', 'publicKey']) ||
+      !hasExactKeys(resource, ['kind', 'canvasId', 'x', 'y', 'width', 'height']) ||
+      !isDeepStrictEqual(extension?.schema, TESSERA_SCOPE402_EXTENSION_SCHEMA) ||
+      info?.version !== 1 || subject?.scheme !== 'p256' ||
+      subject.publicKey !== expected.subjectPubkey || info?.audience !== expected.audience ||
+      resource?.kind !== 'canvas-region' || resource.canvasId !== expected.resource.canvasId ||
+      resource.x !== expected.resource.x || resource.y !== expected.resource.y ||
+      resource.width !== expected.resource.width || resource.height !== expected.resource.height ||
+      !Array.isArray(info?.tools) || info.tools.length !== 1 || info.tools[0] !== 'place_pixel' ||
+      info.maxCalls !== 12 || info.ttlSeconds !== 300 || info.policyHash !== hash) {
+    throw new Error('Scope402 Tessera policy is missing or inconsistent with the quoted purchase')
   }
   return info
 }

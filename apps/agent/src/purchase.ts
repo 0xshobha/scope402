@@ -1,11 +1,9 @@
 import { createHash } from 'node:crypto'
-import { decodePaymentRequiredHeader, decodePaymentResponseHeader,
-  encodePaymentSignatureHeader } from '@x402/core/http'
+import { decodePaymentRequiredHeader } from '@x402/core/http'
 import type { PaymentRequired, PaymentRequirements } from '@x402/core/types'
-import { createClientHederaSigner, inspectHederaTransaction, PrivateKey } from '@x402/hedera'
-import { ExactHederaScheme } from '@x402/hedera/exact/client'
 import { canonicalJson } from './canonical.js'
 import { discoverScanResource } from './discovery.js'
+import { executeExactHederaPayment } from './payment-client.js'
 import { assertScope402Policy, selectPayment } from './policy.js'
 import type { AgentSubject } from './subject.js'
 
@@ -200,49 +198,9 @@ function parseScanResult(value: unknown, prepared: PreparedScan, policy: AgentPo
 }
 
 export async function approveScanPurchase(config: PayerConfig, prepared: PreparedScan,
-  request: typeof fetch = fetch): Promise<{ receipt: ReturnType<typeof decodePaymentResponseHeader>;
-    result: ScanResult }> {
-  const { required, terms } = assertPreparedScan(config, prepared)
-  const signer = createClientHederaSigner(config.payer, PrivateKey.fromStringECDSA(config.payerPrivateKey),
-    { network: 'hedera:testnet' })
-  const signed = await new ExactHederaScheme(signer).createPaymentPayload(2, terms)
-  const transaction = signed.payload.transaction
-  if (typeof transaction !== 'string') throw new Error('SDK returned no signed transfer')
-  const inspected = inspectHederaTransaction(transaction)
-  if (inspected.hbarTransfers.find((entry) => entry.accountId === config.payer)?.amount !== `-${terms.amount}` ||
-      inspected.hbarTransfers.find((entry) => entry.accountId === config.merchant)?.amount !== terms.amount) {
-    throw new Error('Signed transfer does not match the approved payment')
-  }
-  const paymentSignature = encodePaymentSignatureHeader({
-    x402Version: 2, accepted: terms, resource: required.resource, payload: signed.payload,
-    extensions: required.extensions ?? undefined,
-  })
-  let response: Response | undefined
-  for (let attempt = 1; attempt <= 3; attempt += 1) {
-    try {
-      response = await request(prepared.paymentUrl, {
-        method: 'POST', headers: { 'Content-Type': 'application/json',
-          'PAYMENT-SIGNATURE': paymentSignature }, body: prepared.requestBody,
-        redirect: 'error', signal: AbortSignal.timeout(60_000),
-      })
-    } catch (error) {
-      if (attempt === 3) throw error
-      await new Promise((resolve) => setTimeout(resolve, 2_000))
-      continue
-    }
-    if (response.ok) break
-    const failure = await response.json().catch(() => null) as Record<string, unknown> | null
-    const code = String(failure?.error ?? 'UNKNOWN')
-    if (!['SCAN_RETRYABLE', 'SCAN_IN_PROGRESS'].includes(code) || attempt === 3) {
-      throw new Error(`Paid retry returned HTTP ${response.status}: ${code}`)
-    }
-    await new Promise((resolve) => setTimeout(resolve, 2_000))
-  }
-  if (!response?.ok) throw new Error('Paid scan recovery did not complete')
-  const receiptHeader = response.headers.get('PAYMENT-RESPONSE')
-  if (!receiptHeader) throw new Error('API returned success without PAYMENT-RESPONSE')
-  const receipt = decodePaymentResponseHeader(receiptHeader)
-  if (receipt.success !== true || !receipt.transaction || receipt.network !== 'hedera:testnet' ||
-      receipt.payer !== config.payer) throw new Error('API returned an invalid settlement receipt')
-  return { receipt, result: parseScanResult(await response.json(), prepared, config) }
+  request: typeof fetch = fetch) {
+  assertPreparedScan(config, prepared)
+  return executeExactHederaPayment(config, prepared,
+    new Set(['SCAN_RETRYABLE', 'SCAN_IN_PROGRESS']),
+    (value) => parseScanResult(value, prepared, config), request)
 }

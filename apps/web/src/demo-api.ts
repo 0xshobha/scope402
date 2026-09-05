@@ -1,6 +1,6 @@
 export type DemoRun = {
   run_id: string
-  state: 'PAYMENT_REQUIRED' | 'SETTLING' | 'COMPLETE' | 'FAILED'
+  state: 'PAYMENT_REQUIRED' | 'PAYMENT_RECOVERY' | 'SETTLING' | 'COMPLETE' | 'FAILED'
   created_at: string
   expires_at: string
   mode: 'hosted-testnet-agent'

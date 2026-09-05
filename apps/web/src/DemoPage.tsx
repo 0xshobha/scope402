@@ -28,9 +28,10 @@ function LeaseCountdown({ exp }: { exp: number }) {
   return <span className="mono">{minutes}:{seconds}</span>
 }
 
-function HoldToApprove({ amount, disabled, onApprove }: {
+function HoldToApprove({ amount, disabled, recovering, onApprove }: {
   amount: string
   disabled: boolean
+  recovering: boolean
   onApprove: () => void
 }) {
   const timer = useRef<number | undefined>(undefined)
@@ -55,7 +56,7 @@ function HoldToApprove({ amount, disabled, onApprove }: {
     onKeyDown={(event) => { if (!event.repeat && ['Enter', ' '].includes(event.key)) start() }}
     onKeyUp={(event) => { if (['Enter', ' '].includes(event.key)) clear() }}>
     <span className="hold-sweep" aria-hidden="true" />
-    <span className="hold-copy">HOLD TO PAY <b className="mono">{Number(amount).toLocaleString()} TINYBARS</b></span>
+    <span className="hold-copy">{recovering ? 'HOLD TO RECOVER' : 'HOLD TO PAY'} <b className="mono">{Number(amount).toLocaleString()} TINYBARS</b></span>
   </button>
 }
 
@@ -190,8 +191,9 @@ export function DemoPage() {
             <div><dt>MERCHANT</dt><dd className="mono">{run.quote.merchant}</dd></div>
             <div><dt>RAIL</dt><dd className="mono">HBAR · {run.quote.network}</dd></div>
           </dl>
-          {run.state !== 'COMPLETE' && <HoldToApprove amount={run.quote.pricing.total_tinybars}
-            disabled={settling} onApprove={approve} />}
+          {!['COMPLETE', 'FAILED'].includes(run.state) && <HoldToApprove amount={run.quote.pricing.total_tinybars}
+            disabled={settling} recovering={run.state === 'PAYMENT_RECOVERY'} onApprove={approve} />}
+          {run.state === 'PAYMENT_RECOVERY' && <p className="settling-copy mono">NO NEW TRANSFER · RETRIES THE SAME SIGNED HEDERA TRANSACTION</p>}
           {settling && <p className="settling-copy mono">AGENT IS REVALIDATING · SIGNING · SETTLING…</p>}
         </>}
       </div>

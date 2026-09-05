@@ -10,6 +10,7 @@ export default defineConfig({
       input: {
         main: resolve(import.meta.dirname, 'index.html'),
         demo: resolve(import.meta.dirname, 'demo/index.html'),
+        tessera: resolve(import.meta.dirname, 'tessera/index.html'),
       },
     },
   },

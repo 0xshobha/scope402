@@ -5,6 +5,8 @@ import { cors } from 'hono/cors'
 import { isIP } from 'node:net'
 import { DemoRunError, DemoRunService } from './demo-runs.js'
 import type { DemoActionName } from './capability-demo.js'
+import type { TesseraActionName } from './tessera-capability.js'
+import type { TesseraRunService } from './tessera-runs.js'
 
 function bearer(value: string | undefined) {
   return value?.startsWith('Bearer ') ? value.slice(7) : ''
@@ -19,7 +21,7 @@ function clientIp(cloudflare: string | undefined, trustedProxy: TrustedProxy) {
 }
 
 export function createDemoAgentApp(service: DemoRunService, allowedOrigins: Set<string>,
-  trustedProxy: TrustedProxy = 'none') {
+  trustedProxy: TrustedProxy = 'none', tessera?: TesseraRunService) {
   const app = new Hono()
   app.use('*', cors({
     origin: (origin) => allowedOrigins.has(origin) ? origin : '',
@@ -28,12 +30,17 @@ export function createDemoAgentApp(service: DemoRunService, allowedOrigins: Set<
     maxAge: 600,
   }))
   app.use('/demo/*', bodyLimit({ maxSize: 2_048 }))
+  app.use('/tessera/*', bodyLimit({ maxSize: 2_048 }))
   app.use('/demo/*', async (c, next) => {
     await next()
     c.header('Cache-Control', 'no-store')
   })
+  app.use('/tessera/*', async (c, next) => {
+    await next()
+    c.header('Cache-Control', 'no-store')
+  })
   app.get('/health', (c) => c.json({ ok: true, service: 'scope402-demo-agent',
-    mode: 'hedera-testnet-only' }))
+    mode: 'hedera-testnet-only', features: { auditlab: true, tessera: Boolean(tessera) } }))
   app.post('/demo/runs', async (c) => {
     try {
       let value: unknown
@@ -86,6 +93,56 @@ export function createDemoAgentApp(service: DemoRunService, allowedOrigins: Set<
       }
       return c.json(await service.action(c.req.param('runId'),
         bearer(c.req.header('Authorization')), action as DemoActionName))
+    } catch (error) {
+      return demoError(c, error)
+    }
+  })
+  app.post('/tessera/runs', async (c) => {
+    try {
+      if (!tessera) throw new DemoRunError('TESSERA_UNAVAILABLE', 404, 'Tessera agent is not configured')
+      const body = await c.req.text()
+      if (body.trim() && body.trim() !== '{}') {
+        throw new DemoRunError('INVALID_REQUEST', 400, 'Tessera run creation accepts no caller-controlled fields')
+      }
+      return c.json(await tessera.create(clientIp(c.req.header('cf-connecting-ip'), trustedProxy)), 202)
+    } catch (error) {
+      return demoError(c, error)
+    }
+  })
+  app.get('/tessera/runs/:runId', (c) => {
+    try {
+      if (!tessera) throw new DemoRunError('TESSERA_UNAVAILABLE', 404, 'Tessera agent is not configured')
+      return c.json(tessera.get(c.req.param('runId'), bearer(c.req.header('Authorization'))))
+    } catch (error) {
+      return demoError(c, error)
+    }
+  })
+  app.post('/tessera/runs/:runId/approve', async (c) => {
+    try {
+      if (!tessera) throw new DemoRunError('TESSERA_UNAVAILABLE', 404, 'Tessera agent is not configured')
+      const body = await c.req.text()
+      if (body.trim() && body.trim() !== '{}') {
+        throw new DemoRunError('INVALID_REQUEST', 400, 'Tessera approval accepts no payment fields')
+      }
+      return c.json(await tessera.approve(c.req.param('runId'), bearer(c.req.header('Authorization'))))
+    } catch (error) {
+      return demoError(c, error)
+    }
+  })
+  app.post('/tessera/runs/:runId/actions/:action', async (c) => {
+    try {
+      if (!tessera) throw new DemoRunError('TESSERA_UNAVAILABLE', 404, 'Tessera agent is not configured')
+      const body = await c.req.text()
+      if (body.trim() && body.trim() !== '{}') {
+        throw new DemoRunError('INVALID_REQUEST', 400,
+          'Tessera actions accept no caller-controlled authority or pixel fields')
+      }
+      const action = c.req.param('action')
+      if (!['delegate', 'place-outside', 'wrong-key', 'place-inside', 'replay', 'expire'].includes(action)) {
+        throw new DemoRunError('DEMO_ACTION_NOT_FOUND', 404, 'Tessera action was not found')
+      }
+      return c.json(await tessera.action(c.req.param('runId'),
+        bearer(c.req.header('Authorization')), action as TesseraActionName))
     } catch (error) {
       return demoError(c, error)
     }

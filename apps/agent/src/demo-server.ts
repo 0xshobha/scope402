@@ -2,8 +2,12 @@ import { serve } from '@hono/node-server'
 import { createDemoAgentApp, type TrustedProxy } from './demo-app.js'
 import { createCapabilitySession } from './capability-demo.js'
 import { DemoRunService, type DemoRunLimits } from './demo-runs.js'
+import { HostedAgentGuard } from './hosted-payment-guard.js'
 import { approveScanPurchase, prepareScanPurchase, type PayerConfig } from './purchase.js'
 import { ephemeralSubject } from './subject.js'
+import { createTesseraCapabilitySession } from './tessera-capability.js'
+import { approvePlotPurchase, preparePlotPurchase } from './tessera-purchase.js'
+import { TesseraRunService } from './tessera-runs.js'
 
 function required(name: string) {
   const value = process.env[name]
@@ -74,6 +78,7 @@ async function payerBalanceTinybars(accountId: string) {
 }
 
 const { payerConfig, limits, allowedOrigins, demoControlSecret, trustedProxy } = config()
+const hostedGuard = new HostedAgentGuard(limits)
 const service = new DemoRunService({
   prepare: (repoUrl) => prepareScanPurchase(payerConfig, repoUrl, ephemeralSubject()),
   approve: (prepared) => approveScanPurchase(payerConfig, prepared),
@@ -81,8 +86,16 @@ const service = new DemoRunService({
   createCapabilitySession: (prepared, result) =>
     createCapabilitySession(prepared, result, demoControlSecret),
   logError: (message) => console.error(`Demo approval failed: ${message}`),
-}, limits)
-const app = createDemoAgentApp(service, allowedOrigins, trustedProxy)
+}, limits, hostedGuard)
+const tessera = new TesseraRunService({
+  prepare: (subject) => preparePlotPurchase(payerConfig, subject),
+  approve: (prepared) => approvePlotPurchase(payerConfig, prepared),
+  payerBalanceTinybars: () => payerBalanceTinybars(payerConfig.payer),
+  createCapabilitySession: (prepared, result, worker) =>
+    createTesseraCapabilitySession(prepared, result, demoControlSecret, fetch, worker),
+  logError: (message) => console.error(`Tessera hosted-agent failure: ${message}`),
+}, limits, hostedGuard)
+const app = createDemoAgentApp(service, allowedOrigins, trustedProxy, tessera)
 const port = Number(process.env.PORT ?? 3001)
 
 serve({ fetch: app.fetch, hostname: '0.0.0.0', port }, (info) => {
