@@ -45,17 +45,30 @@ export function signInvocationWithKey(invocation: object, key: KeyObject) {
   return { signature: `${header}.${payload}.${signature}`, subjectPubkey: subject_pubkey }
 }
 
+function subjectFromKey(key: KeyObject) {
+  const subjectPubkey = createPublicKey(key).export({ type: 'spki', format: 'der' }).toString('base64url')
+  return {
+    subjectPubkey,
+    sign(invocation: object) {
+      return signInvocationWithKey(invocation, key).signature
+    },
+  }
+}
+
+export type AgentSubject = ReturnType<typeof subjectFromKey>
+
+export async function persistentSubject(): Promise<AgentSubject> {
+  return subjectFromKey(await subjectKey())
+}
+
+export function ephemeralSubject(): AgentSubject {
+  return subjectFromKey(generateKeyPairSync('ec', { namedCurve: 'prime256v1' }).privateKey)
+}
+
 export async function signInvocation(invocation: object) {
   return signInvocationWithKey(invocation, await subjectKey()).signature
 }
 
 export function attackerSubject() {
-  const { privateKey } = generateKeyPairSync('ec', { namedCurve: 'prime256v1' })
-  const subjectPubkey = createPublicKey(privateKey).export({ type: 'spki', format: 'der' }).toString('base64url')
-  return {
-    subjectPubkey,
-    sign(invocation: object) {
-      return signInvocationWithKey(invocation, privateKey).signature
-    },
-  }
+  return ephemeralSubject()
 }

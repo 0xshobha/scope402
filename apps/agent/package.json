@@ -4,14 +4,18 @@
   "type": "module",
   "scripts": {
     "build": "tsc",
+    "demo": "node --env-file-if-exists=.env dist/demo-server.js",
+    "dev:demo": "tsx watch --env-file-if-exists=.env src/demo-server.ts",
     "start": "node --env-file-if-exists=.env dist/index.js",
     "typecheck": "tsc --noEmit && tsc --project tsconfig.test.json",
     "test": "tsx --test test/*.test.ts"
   },
   "dependencies": {
+    "@hono/node-server": "^2.1.1",
     "@x402/core": "2.25.0",
     "@x402/hedera": "2.25.0",
-    "canonicalize": "4.0.0"
+    "canonicalize": "4.0.0",
+    "hono": "^4.13.5"
   },
   "devDependencies": {
     "@types/node": "^22.20.1",
