@@ -5,6 +5,10 @@ type HederaSupport = {
   extra: { feePayer: string }
 }
 
+let cached: { value: HederaSupport; expiresAt: number } | undefined
+let inFlight: Promise<HederaSupport> | undefined
+const supportTtlMs = 5 * 60_000
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
@@ -32,7 +36,7 @@ export function selectHederaSupport(body: unknown): HederaSupport {
   throw new Error('Blocky402 does not advertise exact Hedera testnet x402 v2 support')
 }
 
-export async function getHederaSupport(): Promise<HederaSupport> {
+async function fetchHederaSupport(): Promise<HederaSupport> {
   const response = await fetch('https://api.testnet.blocky402.com/supported', {
     signal: AbortSignal.timeout(10_000),
     redirect: 'error',
@@ -41,4 +45,23 @@ export async function getHederaSupport(): Promise<HederaSupport> {
     throw new Error(`Blocky402 /supported returned HTTP ${response.status}`)
   }
   return selectHederaSupport(await response.json())
+}
+
+export async function getHederaSupport(): Promise<HederaSupport> {
+  if (cached && cached.expiresAt > Date.now()) return cached.value
+  if (inFlight) return inFlight
+  const lastKnown = cached?.value
+  inFlight = fetchHederaSupport().then((value) => {
+    cached = { value, expiresAt: Date.now() + supportTtlMs }
+    return value
+  }).catch((error) => {
+    if (lastKnown) return lastKnown
+    throw error
+  }).finally(() => { inFlight = undefined })
+  return inFlight
+}
+
+export function clearHederaSupportCache() {
+  cached = undefined
+  inFlight = undefined
 }

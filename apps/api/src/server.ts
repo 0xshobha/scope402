@@ -1,5 +1,6 @@
 import { serve } from '@hono/node-server'
 import { app } from './app.js'
+import { getHederaSupport } from './blocky.js'
 import { initializeDatabase } from './db.js'
 
 const port = Number(process.env.PORT ?? 3000)
@@ -9,6 +10,9 @@ if (!Number.isInteger(port) || port < 1 || port > 65535) {
 
 await initializeDatabase()
 console.log(`GitHub API: ${process.env.GITHUB_TOKEN ? 'authenticated' : 'unauthenticated'}`)
+void getHederaSupport().then(() => console.log('Blocky402 support: cached')).catch((error) => {
+  console.warn(`Blocky402 support warm-up failed: ${error instanceof Error ? error.message : 'unknown error'}`)
+})
 
 const server = serve({ fetch: app.fetch, hostname: '0.0.0.0', port }, (info) => {
   console.log(`AuditLab listening on :${info.port}`)
