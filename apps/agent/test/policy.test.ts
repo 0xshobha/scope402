@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { selectPayment } from '../src/policy.js'
+import { createHash } from 'node:crypto'
+import { canonicalJson } from '../src/canonical.js'
+import { assertScope402Policy, selectPayment } from '../src/policy.js'
 
 const url = 'http://127.0.0.1:3000/v1/scans'
 const quoteUrl = `${url}?quote_id=123e4567-e89b-42d3-a456-426614174000`
@@ -49,4 +51,25 @@ test('refuses self-payment and another resource', () => {
   assert.throws(() => selectPayment(required, `${url}/other`, '0.0.12345', '0.0.54321', '100000'))
   assert.throws(() => selectPayment({ ...required, resource: { url } }, url,
     '0.0.12345', '0.0.54321', '100000'))
+})
+
+test('requires the exact subject-bound capability policy advertised by the quote', () => {
+  const policy = { version: 1, subject: { scheme: 'p256', publicKey: 'subject-key' },
+    audience: 'http://127.0.0.1:3000/v1/tools',
+    resource: { kind: 'github-repository', id: '0xshobha/scope402', revision: 'a'.repeat(40) },
+    tools: ['finding_details'], maxCalls: 3, ttlSeconds: 300 }
+  const extension = { ...required, extensions: { scope402: { info: { ...policy,
+    policyHash: `sha256:${createHash('sha256').update(canonicalJson(policy)).digest('hex')}` },
+  schema: { type: 'object' } } } }
+  const expected = { subjectPubkey: 'subject-key', repository: '0xshobha/scope402',
+    commitSha: 'a'.repeat(40), audience: 'http://127.0.0.1:3000/v1/tools' }
+  assert.equal(assertScope402Policy(extension, expected).maxCalls, 3)
+  for (const info of [
+    { ...policy, subject: { scheme: 'p256', publicKey: 'attacker' } },
+    { ...policy, maxCalls: 4 }, { ...policy, tools: ['other'] },
+    { ...policy, resource: { ...policy.resource, revision: 'b'.repeat(40) } },
+  ]) {
+    assert.throws(() => assertScope402Policy({ ...extension, extensions: { scope402: {
+      ...extension.extensions.scope402, info } } }, expected), /capability policy/)
+  }
 })

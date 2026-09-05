@@ -6,7 +6,7 @@ import { createClientHederaSigner, inspectHederaTransaction, PrivateKey } from '
 import { ExactHederaScheme } from '@x402/hedera/exact/client'
 import { canonicalJson } from './canonical.js'
 import { discoverScanResource } from './discovery.js'
-import { selectPayment } from './policy.js'
+import { assertScope402Policy, selectPayment } from './policy.js'
 import type { AgentSubject } from './subject.js'
 
 type Pricing = {
@@ -158,6 +158,9 @@ export async function prepareScanPurchase(policy: AgentPolicy, repoInput: string
   const selected = selectPayment(decodePaymentRequiredHeader(header), url.href, policy.merchant,
     policy.payer, policy.maxPaymentTinybars)
   const quote = parseQuote(await response.json(), selected.terms.amount)
+  assertScope402Policy(selected.required, { subjectPubkey: subject.subjectPubkey,
+    repository: quote.repository, commitSha: quote.commit_sha,
+    audience: new URL('/v1/tools', policy.auditLabUrl).href })
   const prepared = {
     payer: policy.payer, repoUrl, requestUrl: url.href, paymentUrl: selected.paymentUrl.href, requestBody,
     required: selected.required, terms: selected.terms, quote, subject,
@@ -212,6 +215,7 @@ export async function approveScanPurchase(config: PayerConfig, prepared: Prepare
   }
   const paymentSignature = encodePaymentSignatureHeader({
     x402Version: 2, accepted: terms, resource: required.resource, payload: signed.payload,
+    extensions: required.extensions ?? undefined,
   })
   let response: Response | undefined
   for (let attempt = 1; attempt <= 3; attempt += 1) {

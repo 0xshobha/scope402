@@ -13,6 +13,7 @@ import { assertQuotedPayment, createQuote, loadQuote, settledRedemption, type Pr
 import { quoteRateLimiter } from './quote-rate-limit.js'
 import { fulfillPaidScan, ScanJobError } from './scan-jobs.js'
 import { paymentTransactionId, settlePayment } from './settlement.js'
+import { assertScope402Echo, scope402Extension } from './scope-extension.js'
 
 export type ScanRequest = { repo_url: string; subject_pubkey: string }
 
@@ -92,6 +93,7 @@ export async function paymentRequired(
   config: { payTo: string; amount: string },
   support: Awaited<ReturnType<typeof getHederaSupport>>,
   description = 'AuditLab repository scan',
+  extensions?: Record<string, unknown>,
 ): Promise<PaymentRequired> {
   const requirement = await new ExactHederaScheme().enhancePaymentRequirements({
     scheme: support.scheme, network: support.network, asset: '0.0.0',
@@ -102,6 +104,7 @@ export async function paymentRequired(
     error: 'PAYMENT-SIGNATURE header is required',
     resource: { url, description, mimeType: 'application/json' },
     accepts: [requirement],
+    ...(extensions ? { extensions } : {}),
   }
 }
 
@@ -135,7 +138,10 @@ scans.post('/', async (c) => {
       const transactionId = paymentTransactionId(payload)
       const recovered = await settledRedemption(transactionId, quoteId)
       const quote = await loadQuote(quoteId, request.repo_url, request.subject_pubkey, Boolean(recovered))
+      const extensions = quote.snapshot ? scope402Extension(request.subject_pubkey, quote.snapshot,
+        new URL('/v1/tools', process.env.AUDITLAB_URL ?? c.req.url).href) : undefined
       assertQuotedPayment(payload, quote)
+      assertScope402Echo(payload, extensions)
       const receipt = recovered ?? await settlePayment(quoteId, payload, quote.requirements)
       c.header('PAYMENT-RESPONSE', encodePaymentResponseHeader(receipt))
       c.header('Cache-Control', 'no-store')
@@ -175,7 +181,9 @@ scans.post('/', async (c) => {
     const endpoint = scanResourceUrl(c.req.url)
     const description = `AuditLab scan of ${snapshot.repo}@${snapshot.commit_sha} (${pricing.files_considered} root files)`
     const config = { ...merchant, amount: assertPaymentAmount(pricing.total_tinybars) }
-    const draft = await paymentRequired(endpoint, config, support, description)
+    const extensions = scope402Extension(request.subject_pubkey, snapshot,
+      new URL('/v1/tools', process.env.AUDITLAB_URL ?? c.req.url).href)
+    const draft = await paymentRequired(endpoint, config, support, description, extensions)
     const quote = await createQuote(request.repo_url, request.subject_pubkey, endpoint,
       draft.accepts[0]!, snapshot, pricing)
     const required = { ...draft, resource: { ...draft.resource, url: quote.resourceUrl } }

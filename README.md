@@ -52,6 +52,8 @@ The browser is not trusted with either the Hedera payer key or the subject priva
 - guarded hosted testnet agent with prepare-before-pay approval, rate limits, spend ceiling, and balance floor
 - browser demo for a real metered quote, explicit approval, settlement, scan result, ToolLease, allowed call,
   wrong-key denial, replay denial, and expiry denial
+- x402 v2 `scope402` extension that binds the declared subject, exact resource revision, tool allowlist,
+  call budget, and lease lifetime before the payer signs
 
 There is intentionally one merchant tool: `finding_details`.
 
@@ -147,6 +149,7 @@ corepack pnpm build
 - browser actions are fixed requests to the hosted agent; keys, lease tokens, signatures, and demo-control secrets
   remain outside the browser
 - no HCS anchoring, Agent Kit plugin, or additional sponsor integration yet
+- no canvas merchant or ENS integration yet; those remain proposals, not current product claims
 
 ## AI assistance
 

@@ -5,6 +5,7 @@ import { decodePaymentRequiredHeader, encodePaymentRequiredHeader } from '@x402/
 import { PaymentRequiredV2Schema } from '@x402/core/schemas'
 import { app } from '../src/app.js'
 import { clearRepositoryCache } from '../src/github.js'
+import { assertScope402Echo, scope402Extension } from '../src/scope-extension.js'
 import { assertPaymentAmount, meterScan, parseScanRequest, paymentRequired, pricingConfig,
   scanResourceUrl, settledPaymentDetails } from '../src/scans.js'
 
@@ -24,13 +25,29 @@ test('validates a GitHub repository and real P-256 public key', () => {
 })
 
 test('encodes a requirement accepted by the official x402 v2 schema', async () => {
+  const extensions = scope402Extension(request.subject_pubkey, {
+    repo: '0xshobha/scope402', commit_sha: 'a'.repeat(40), root_files: ['package.json'],
+  }, 'http://localhost:3000/v1/tools')
   const required = await paymentRequired('http://localhost:3000/v1/scans',
     { payTo: '0.0.12345', amount: '100000' },
-    { scheme: 'exact', network: 'hedera:testnet', x402Version: 2, extra: { feePayer: '0.0.67890' } })
+    { scheme: 'exact', network: 'hedera:testnet', x402Version: 2, extra: { feePayer: '0.0.67890' } },
+    'AuditLab repository scan', extensions)
   const decoded = decodePaymentRequiredHeader(encodePaymentRequiredHeader(required))
   assert.equal(PaymentRequiredV2Schema.safeParse(decoded).success, true)
   assert.deepEqual(decoded, required)
   assert.equal(decoded.accepts[0]?.asset, '0.0.0')
+  assert.deepEqual(decoded.extensions, extensions)
+})
+
+test('requires the paid payload to echo the exact Scope402 capability policy', () => {
+  const extensions = scope402Extension(request.subject_pubkey, {
+    repo: '0xshobha/scope402', commit_sha: 'a'.repeat(40), root_files: ['package.json'],
+  }, 'http://localhost:3000/v1/tools')
+  assert.doesNotThrow(() => assertScope402Echo({ extensions }, extensions))
+  const changed = structuredClone(extensions)
+  ;(changed.scope402.info as { maxCalls: number }).maxCalls = 4
+  assert.throws(() => assertScope402Echo({ extensions: changed }, extensions), /does not echo/)
+  assert.throws(() => assertScope402Echo({}, extensions), /does not echo/)
 })
 
 test('rejects invalid scan requests before discovery', async () => {

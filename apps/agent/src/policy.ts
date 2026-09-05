@@ -1,4 +1,29 @@
 import { PaymentRequiredV2Schema } from '@x402/core/schemas'
+import { createHash } from 'node:crypto'
+import { canonicalJson } from './canonical.js'
+
+type ExpectedScope = { subjectPubkey: string; repository: string; commitSha: string; audience: string }
+
+export function assertScope402Policy(required: { extensions?: Record<string, unknown> | null }, expected: ExpectedScope) {
+  const extension = required.extensions?.scope402 as Record<string, unknown> | undefined
+  const info = extension?.info as Record<string, unknown> | undefined
+  const subject = info?.subject as Record<string, unknown> | undefined
+  const resource = info?.resource as Record<string, unknown> | undefined
+  const policy = info && {
+    version: info.version, subject: info.subject, audience: info.audience, resource: info.resource,
+    tools: info.tools, maxCalls: info.maxCalls, ttlSeconds: info.ttlSeconds,
+  }
+  const hash = policy ? `sha256:${createHash('sha256').update(canonicalJson(policy)).digest('hex')}` : ''
+  if (!extension?.schema || info?.version !== 1 || subject?.scheme !== 'p256' ||
+      subject.publicKey !== expected.subjectPubkey || info?.audience !== expected.audience ||
+      resource?.kind !== 'github-repository' || resource.id !== expected.repository ||
+      resource.revision !== expected.commitSha || !Array.isArray(info?.tools) ||
+      info.tools.length !== 1 || info.tools[0] !== 'finding_details' || info.maxCalls !== 3 ||
+      info.ttlSeconds !== 300 || info.policyHash !== hash) {
+    throw new Error('Scope402 capability policy is missing or inconsistent with the quoted purchase')
+  }
+  return info
+}
 
 export function selectPayment(value: unknown, url: string, merchant: string, payer: string, limit: string) {
   if (!/^[1-9]\d*$/.test(limit) || BigInt(limit) > 100_000_000n) {
