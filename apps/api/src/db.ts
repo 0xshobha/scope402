@@ -139,6 +139,13 @@ export async function initializeDatabase() {
       updated_at timestamptz NOT NULL DEFAULT clock_timestamp(),
       PRIMARY KEY (canvas_id, x, y)
     );
+    CREATE TABLE IF NOT EXISTS scope402_operation_receipts (
+      operation_id uuid PRIMARY KEY,
+      operation_kind text NOT NULL CHECK (operation_kind IN ('delegate_capability', 'place_pixel')),
+      request_hash text NOT NULL CHECK (request_hash ~ '^[0-9a-f]{64}$'),
+      response jsonb NOT NULL,
+      created_at timestamptz NOT NULL DEFAULT clock_timestamp()
+    );
   `)
 }
 

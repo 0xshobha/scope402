@@ -6,6 +6,7 @@ import { assertP256Key, encodeJwsPart, loadServiceKey, parseCompactJws, signLeas
   type BaseLeaseClaims } from './lease.js'
 import { exactPolicyEcho, hasExactKeys, isScope402Resource, type Scope402Resource } from './policy.js'
 import { lockCapability } from './store.js'
+import { writeOperationReceipt, type OperationReceipt } from './operation-receipts.js'
 
 export type DelegationTerms = {
   parent_lease_id: string
@@ -116,6 +117,7 @@ export async function delegateCapability(parentClaims: BaseLeaseClaims, terms: D
   options: {
     merchantId: string
     authorizeResource(parent: Scope402Resource, child: Scope402Resource): void
+    operation?: OperationReceipt
   }) {
   if (terms.parent_lease_id !== parentClaims.lease_id) {
     throw new LeaseError('LEASE_REQUIRED', 'Delegation is for another parent capability')
@@ -206,9 +208,11 @@ export async function delegateCapability(parentClaims: BaseLeaseClaims, terms: D
         options.merchantId, claims.parent_lease_id, claims.root_lease_id],
     )
     if (inserted.rowCount !== 1) throw new Error('Child capability could not be persisted')
-    return { status: 'CAPABILITY_DELEGATED' as const, lease: { token, ...claims },
+    const response = { status: 'CAPABILITY_DELEGATED' as const, lease: { token, ...claims },
       parent: { lease_id: state.leaseId, reserved_calls: Number(reserved.rows[0].reserved_calls),
         remaining_calls: Number(reserved.rows[0].remaining_calls),
         delegation_counter: terms.counter } }
+    await writeOperationReceipt(client, options.operation, response)
+    return response
   })
 }

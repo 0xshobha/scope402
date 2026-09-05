@@ -34,6 +34,7 @@ type IssuedRoot = Awaited<ReturnType<typeof fulfillPaidPlot>> & {
 }
 
 async function cleanTessera() {
+  await database().query(`DELETE FROM scope402_operation_receipts`)
   await database().query(`DELETE FROM tessera_pixels`)
   await database().query(
     `DELETE FROM plot_jobs
@@ -75,9 +76,10 @@ function signedPixelBody(issued: IssuedRoot, args: PixelArgs, counter: number,
     signature: signInvocation(invocation, publicKey, key) })
 }
 
-function place(body: string) {
+function place(body: string, operationId?: string) {
   return app.request('/v1/tools/place_pixel', { method: 'POST',
-    headers: { 'Content-Type': 'application/json' }, body })
+    headers: { 'Content-Type': 'application/json',
+      ...(operationId ? { 'Idempotency-Key': operationId } : {}) }, body })
 }
 
 async function capabilityState(leaseId: string) {
@@ -192,6 +194,26 @@ test('Tessera enforces canvas authority and pixel mutation atomically', async (t
     assert.equal((await database().query(
       `SELECT count(*)::int AS count FROM tessera_pixels WHERE lease_id = $1`,
       [issued.lease.lease_id])).rows[0].count, 1)
+  })
+
+  await t.test('a lost pixel response is recoverable without weakening replay denial', async () => {
+    const issued = await issueRoot()
+    const args = { canvas_id: 'main', x: issued.region.x, y: issued.region.y, color: '#00D3F2' }
+    const requestBody = signedPixelBody(issued, args, 1)
+    const operationId = '123e4567-e89b-42d3-a456-426614174111'
+    const [committed, concurrentRecovery] = await Promise.all([
+      place(requestBody, operationId), place(requestBody, operationId),
+    ])
+    assert.deepEqual([committed.status, concurrentRecovery.status], [200, 200])
+    const expected = await committed.json()
+    assert.deepEqual(await concurrentRecovery.json(), expected)
+    const recovered = await place(requestBody, operationId)
+    assert.deepEqual(await recovered.json(), expected)
+    const replay = await place(requestBody)
+    assert.equal(replay.status, 403)
+    assert.equal((await replay.json()).error, 'REPLAY_DETECTED')
+    assert.deepEqual(await capabilityState(issued.lease.lease_id),
+      { used_calls: 1, last_counter: 1 })
   })
 
   await t.test('server-side expiry prevents pixel mutation', async () => {

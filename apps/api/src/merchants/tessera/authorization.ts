@@ -9,6 +9,7 @@ import type { CanvasRegionResource } from '../../scope402/policy.js'
 import { authorizeCanvasPoint, parseCanvasRegion } from './resource.js'
 import { isTesseraColor, type TesseraColor } from './palette.js'
 import { TESSERA_MERCHANT_ID } from './quotes.js'
+import { writeOperationReceipt, type OperationReceipt } from '../../scope402/operation-receipts.js'
 
 export type PlacePixelArgs = {
   canvas_id: string
@@ -52,9 +53,15 @@ export async function verifyTesseraServiceLease(token: string): Promise<TesseraL
 }
 
 export async function authorizeTesseraPixel(claims: TesseraLeaseClaims,
-  invocation: Scope402Invocation, args: PlacePixelArgs) {
-  return transaction((client) => authorizeAndCommitInTransaction(
-    client, claims, invocation, args, tesseraPixelAdapter))
+  invocation: Scope402Invocation, args: PlacePixelArgs, operation?: OperationReceipt) {
+  return transaction(async (client) => {
+    const result = await authorizeAndCommitInTransaction(
+      client, claims, invocation, args, tesseraPixelAdapter)
+    const response = { status: 'PIXEL_PLACED' as const, lease_id: claims.lease_id,
+      counter: invocation.counter, ...result }
+    await writeOperationReceipt(client, operation, response)
+    return response
+  })
 }
 
 const tesseraPixelAdapter = {

@@ -40,6 +40,7 @@ type IssuedRoot = Awaited<ReturnType<typeof fulfillPaidPlot>> & {
 type IssuedChild = DelegatedLeaseClaims & { token: string }
 
 async function cleanTessera() {
+  await database().query(`DELETE FROM scope402_operation_receipts`)
   await database().query(`DELETE FROM tessera_pixels`)
   await database().query(
     `DELETE FROM plot_jobs
@@ -83,9 +84,10 @@ function delegationBody(root: IssuedRoot, terms: DelegationTerms,
 }
 
 function delegate(root: IssuedRoot, terms: DelegationTerms,
-  key = principal.privateKey, pubkey = principalPubkey) {
+  key = principal.privateKey, pubkey = principalPubkey, operationId?: string) {
   return app.request(`/v1/leases/${root.lease.lease_id}/delegations`, { method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json',
+      ...(operationId ? { 'Idempotency-Key': operationId } : {}) },
     body: delegationBody(root, terms, key, pubkey) })
 }
 
@@ -197,6 +199,33 @@ test('Tessera delegates attenuated capabilities with conserved authority', async
     assert.equal((await database().query(
       `SELECT count(*)::int AS count FROM tool_leases WHERE parent_lease_id = $1`,
       [root.lease.lease_id])).rows[0].count, 1)
+  })
+
+  await t.test('a lost delegation response is recoverable without allocating twice', async () => {
+    await cleanTessera()
+    const root = await issueRoot()
+    const terms = childTerms(root)
+    const requestBody = delegationBody(root, terms)
+    const operationId = '123e4567-e89b-42d3-a456-426614174112'
+    const send = (id?: string) => app.request(
+      `/v1/leases/${root.lease.lease_id}/delegations`, { method: 'POST',
+        headers: { 'Content-Type': 'application/json',
+          ...(id ? { 'Idempotency-Key': id } : {}) }, body: requestBody })
+    const [committed, concurrentRecovery] = await Promise.all([
+      send(operationId), send(operationId),
+    ])
+    assert.deepEqual([committed.status, concurrentRecovery.status], [200, 200])
+    const expected = await committed.json()
+    assert.deepEqual(await concurrentRecovery.json(), expected)
+    const recovered = await send(operationId)
+    assert.deepEqual(await recovered.json(), expected)
+    const replay = await send()
+    assert.equal(replay.status, 403)
+    assert.equal((await replay.json()).error, 'REPLAY_DETECTED')
+    assert.equal((await database().query(
+      `SELECT count(*)::int AS count FROM tool_leases WHERE parent_lease_id = $1`,
+      [root.lease.lease_id])).rows[0].count, 1)
+    assert.equal((await parentState(root.lease.lease_id)).reserved_calls, 1)
   })
 
   await t.test('child-to-grandchild delegation is refused', async () => {

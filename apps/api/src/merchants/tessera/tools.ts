@@ -5,6 +5,8 @@ import { verifyBoundInvocation } from '../../scope402/invocation.js'
 import { hasExactKeys } from '../../scope402/policy.js'
 import { authorizeTesseraPixel, verifyTesseraServiceLease,
   type PlacePixelArgs } from './authorization.js'
+import { operationReceipt, readOperationReceipt,
+  type OperationReceipt } from '../../scope402/operation-receipts.js'
 
 type PlacePixelRequest = {
   lease: string
@@ -35,16 +37,22 @@ function parsePlacePixelRequest(value: unknown): PlacePixelRequest {
 export const tesseraTools = new Hono()
 tesseraTools.use('*', bodyLimit({ maxSize: 32_768 }))
 tesseraTools.post('/place_pixel', async (c) => {
+  let operation: OperationReceipt | undefined
   try {
     const request = parsePlacePixelRequest(await c.req.json())
+    operation = operationReceipt(c.req.header('Idempotency-Key'), 'place_pixel', request)
+    const recovered = await readOperationReceipt(operation)
+    if (recovered) return c.json(recovered)
     const claims = await verifyTesseraServiceLease(request.lease)
     const invocation = verifyBoundInvocation({ signature: request.signature, claims,
       counter: request.counter, args: request.args, toolId: 'place_pixel' })
-    const result = await authorizeTesseraPixel(claims, invocation, request.args)
-    return c.json({ status: 'PIXEL_PLACED', lease_id: claims.lease_id,
-      counter: request.counter, ...result })
+    return c.json(await authorizeTesseraPixel(claims, invocation, request.args, operation))
   } catch (error) {
     if (error instanceof LeaseError) {
+      if (error.code === 'REPLAY_DETECTED' && operation) {
+        const recovered = await readOperationReceipt(operation)
+        if (recovered) return c.json(recovered)
+      }
       const status = error.code === 'LEASE_EXPIRED' ? 410 :
         error.code === 'LEASE_REQUIRED' ? 401 : 403
       return c.json({ error: error.code, message: error.message }, status)

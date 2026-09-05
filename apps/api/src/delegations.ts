@@ -7,6 +7,8 @@ import { loadServiceKey, verifyLease } from './scope402/lease.js'
 import { containsCanvasRegion, parseCanvasRegion } from './merchants/tessera/resource.js'
 import { TESSERA_MERCHANT_ID } from './merchants/tessera/quotes.js'
 import { exactPolicyEcho } from './scope402/policy.js'
+import { operationReceipt, readOperationReceipt,
+  type OperationReceipt } from './scope402/operation-receipts.js'
 
 type DelegationRequest = { lease: string; delegation: string }
 
@@ -24,8 +26,13 @@ function parseRequest(value: unknown): DelegationRequest {
 export const delegations = new Hono()
 delegations.use('*', bodyLimit({ maxSize: 32_768 }))
 delegations.post('/:leaseId/delegations', async (c) => {
+  let operation: OperationReceipt | undefined
   try {
     const request = parseRequest(await c.req.json())
+    operation = operationReceipt(c.req.header('Idempotency-Key'),
+      'delegate_capability', { leaseId: c.req.param('leaseId'), request })
+    const recovered = await readOperationReceipt(operation)
+    if (recovered) return c.json(recovered)
     const claims = verifyLease(request.lease, await loadServiceKey())
     if (claims.lease_id !== c.req.param('leaseId')) {
       throw new LeaseError('LEASE_REQUIRED', 'Parent lease does not match the route')
@@ -33,6 +40,7 @@ delegations.post('/:leaseId/delegations', async (c) => {
     const terms = verifyDelegation(request.delegation, claims.subject_pubkey)
     return c.json(await delegateCapability(claims, terms, {
       merchantId: TESSERA_MERCHANT_ID,
+      operation,
       authorizeResource(parent, child) {
         let parentRegion
         let childRegion
@@ -51,6 +59,10 @@ delegations.post('/:leaseId/delegations', async (c) => {
     }))
   } catch (error) {
     if (error instanceof LeaseError) {
+      if (error.code === 'REPLAY_DETECTED' && operation) {
+        const recovered = await readOperationReceipt(operation)
+        if (recovered) return c.json(recovered)
+      }
       const status = error.code === 'LEASE_EXPIRED' ? 410 :
         error.code === 'LEASE_REQUIRED' ? 401 : 403
       return c.json({ error: error.code, message: error.message }, status)
