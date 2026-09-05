@@ -8,6 +8,7 @@ if (!Number.isInteger(port) || port < 1 || port > 65535) {
 }
 
 await initializeDatabase()
+console.log(`GitHub API: ${process.env.GITHUB_TOKEN ? 'authenticated' : 'unauthenticated'}`)
 
 const server = serve({ fetch: app.fetch, hostname: '0.0.0.0', port }, (info) => {
   console.log(`AuditLab listening on :${info.port}`)

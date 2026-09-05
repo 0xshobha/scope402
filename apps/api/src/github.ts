@@ -13,6 +13,19 @@ type Repository = { default_branch?: unknown; full_name?: unknown }
 type Branch = { commit?: { sha?: unknown } }
 type Content = { name?: unknown; type?: unknown }
 
+const headCache = new Map<string, { sha: string; expiresAt: number }>()
+const snapshotCache = new Map<string, RepositorySnapshot>()
+const inFlight = new Map<string, Promise<RepositorySnapshot>>()
+const headTtlMs = 60_000
+const maxHeads = 256
+const maxSnapshots = 512
+
+export class GitHubRequestError extends Error {
+  constructor(public readonly status: number, public readonly retryable: boolean) {
+    super(`GitHub API returned ${status}`)
+  }
+}
+
 export type Finding = {
   id: 'missing-lockfile'
   severity: 'medium'
@@ -49,14 +62,22 @@ async function github<T>(path: string): Promise<T> {
     headers, redirect: 'error', signal: AbortSignal.timeout(10_000),
   })
   if (!response.ok) {
-    const suffix = response.headers.get('x-ratelimit-remaining') === '0' ? ' (rate limit exhausted)' : ''
-    throw new Error(`GitHub API returned ${response.status}${suffix}`)
+    const rateLimited = response.status === 429 ||
+      (response.status === 403 && response.headers.get('x-ratelimit-remaining') === '0')
+    throw new GitHubRequestError(response.status, rateLimited || response.status >= 500)
   }
   return response.json() as Promise<T>
 }
 
-export async function prepareRepository(repoUrl: string): Promise<RepositorySnapshot> {
-  const { owner, repo } = repositoryCoordinates(repoUrl)
+function remember<K, V>(cache: Map<K, V>, key: K, value: V, maximum: number) {
+  cache.delete(key)
+  cache.set(key, value)
+  if (cache.size > maximum) cache.delete(cache.keys().next().value!)
+}
+
+async function resolveRepository(coordinates: ReturnType<typeof repositoryCoordinates>,
+  key: string): Promise<RepositorySnapshot> {
+  const { owner, repo } = coordinates
   const base = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`
   const metadata = await github<Repository>(base)
   if (typeof metadata.default_branch !== 'string' || typeof metadata.full_name !== 'string') {
@@ -67,11 +88,42 @@ export async function prepareRepository(repoUrl: string): Promise<RepositorySnap
   if (typeof sha !== 'string' || !/^[0-9a-f]{40}$/.test(sha)) {
     throw new Error('GitHub returned a malformed commit SHA')
   }
+  const snapshotKey = `${key}@${sha}`
+  const cached = snapshotCache.get(snapshotKey)
+  if (cached) {
+    remember(headCache, key, { sha, expiresAt: Date.now() + headTtlMs }, maxHeads)
+    return cached
+  }
   const contents = await github<Content[]>(`${base}/contents?ref=${sha}`)
   if (!Array.isArray(contents)) throw new Error('GitHub repository root is not a directory')
   const files = contents.filter((entry) => entry.type === 'file' && typeof entry.name === 'string')
     .map((entry) => entry.name as string)
-  return { repo: metadata.full_name, commit_sha: sha, root_files: files.sort() }
+  const snapshot = { repo: metadata.full_name, commit_sha: sha, root_files: files.sort() }
+  remember(snapshotCache, snapshotKey, snapshot, maxSnapshots)
+  remember(headCache, key, { sha, expiresAt: Date.now() + headTtlMs }, maxHeads)
+  return snapshot
+}
+
+export async function prepareRepository(repoUrl: string): Promise<RepositorySnapshot> {
+  const coordinates = repositoryCoordinates(repoUrl)
+  const key = `${coordinates.owner.toLowerCase()}/${coordinates.repo.toLowerCase()}`
+  const head = headCache.get(key)
+  const lastKnown = head ? snapshotCache.get(`${key}@${head.sha}`) : undefined
+  if (head && head.expiresAt > Date.now() && lastKnown) return lastKnown
+  const pending = inFlight.get(key)
+  if (pending) return pending
+  const resolution = resolveRepository(coordinates, key).catch((error) => {
+    if (lastKnown && (!(error instanceof GitHubRequestError) || error.retryable)) return lastKnown
+    throw error
+  }).finally(() => inFlight.delete(key))
+  inFlight.set(key, resolution)
+  return resolution
+}
+
+export function clearRepositoryCache() {
+  headCache.clear()
+  snapshotCache.clear()
+  inFlight.clear()
 }
 
 export function scanRepositorySnapshot(snapshot: RepositorySnapshot) {

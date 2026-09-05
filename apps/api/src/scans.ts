@@ -10,6 +10,7 @@ import { prepareRepository, scanRepositorySnapshot } from './github.js'
 import { PaymentError } from './payment-error.js'
 import { settledPaymentDetails } from './payment-receipt.js'
 import { assertQuotedPayment, createQuote, loadQuote, settledRedemption, type Pricing } from './payments.js'
+import { quoteRateLimiter } from './quote-rate-limit.js'
 import { fulfillPaidScan, ScanJobError } from './scan-jobs.js'
 import { paymentTransactionId, settlePayment } from './settlement.js'
 
@@ -147,6 +148,13 @@ scans.post('/', async (c) => {
       pricingPolicy = pricingConfig()
     } catch (error) {
       return c.json({ error: 'PAYMENT_NOT_CONFIGURED', message: (error as Error).message }, 503)
+    }
+    const forwarded = c.req.header('x-forwarded-for')?.split(',')[0]?.trim()
+    const rate = quoteRateLimiter.take(forwarded || c.req.header('x-real-ip') || 'unknown')
+    if (!rate.allowed) {
+      c.header('Retry-After', String(rate.retryAfterSeconds))
+      return c.json({ error: 'QUOTE_RATE_LIMITED',
+        message: 'Too many unpaid quote requests; retry later' }, 429)
     }
     try {
       snapshot = await prepareRepository(request.repo_url)
