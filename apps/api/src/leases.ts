@@ -56,6 +56,7 @@ export async function prepareLease(subjectPubkey: string, scan: { scan_id: strin
     exp: now + validatedPolicy.ttlSeconds, offer_id: offerId,
     hedera_tx_id: transactionId, scan_id: scan.scan_id,
     policy_hash: validatedPolicy.policyHash,
+    resource: validatedPolicy.resource,
   }
   return { token: signLease(claims, await loadServiceKey()), claims }
 }
@@ -64,16 +65,19 @@ export async function persistLease(client: TransactionClient,
   lease: Awaited<ReturnType<typeof prepareLease>>, findings: unknown[]) {
   await client.query(
     `INSERT INTO tool_leases
-       (lease_id, subject_pubkey, scan_id, hedera_tx_id, expires_at, max_calls, policy_hash, findings)
-     VALUES ($1, $2, $3, $4, to_timestamp($5), $6, $7, $8)`,
+       (lease_id, subject_pubkey, scan_id, hedera_tx_id, expires_at, max_calls, policy_hash,
+        resource, audience, catalogue_hash, tool_ids, format_version, findings)
+     VALUES ($1, $2, $3, $4, to_timestamp($5), $6, $7, $8, $9, $10, $11, 1, $12)`,
     [lease.claims.lease_id, lease.claims.subject_pubkey, lease.claims.scan_id,
       lease.claims.hedera_tx_id, lease.claims.exp, lease.claims.max_calls,
-      lease.claims.policy_hash, JSON.stringify(findings)],
+      lease.claims.policy_hash, JSON.stringify(lease.claims.resource), lease.claims.aud,
+      lease.claims.catalogue_hash, JSON.stringify(lease.claims.tool_ids), JSON.stringify(findings)],
   )
 }
 
 export async function authorizeInvocation(claims: LeaseClaims, invocation: Invocation, findingId: string) {
-  return transaction((client) => authorizeAuditLabInvocation(client, claims, invocation, findingId))
+  return transaction((client) => authorizeAuditLabInvocation(
+    client, claims, invocation, { finding_id: findingId }))
 }
 
 export async function verifyServiceLease(token: string) {

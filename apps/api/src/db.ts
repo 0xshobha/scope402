@@ -69,6 +69,12 @@ export async function initializeDatabase() {
       findings jsonb NOT NULL
     );
     ALTER TABLE tool_leases ADD COLUMN IF NOT EXISTS policy_hash text;
+    ALTER TABLE tool_leases ADD COLUMN IF NOT EXISTS resource jsonb;
+    ALTER TABLE tool_leases ADD COLUMN IF NOT EXISTS audience text;
+    ALTER TABLE tool_leases ADD COLUMN IF NOT EXISTS catalogue_hash text;
+    ALTER TABLE tool_leases ADD COLUMN IF NOT EXISTS tool_ids jsonb;
+    ALTER TABLE tool_leases ADD COLUMN IF NOT EXISTS format_version smallint
+      CHECK (format_version IS NULL OR format_version = 1);
   `)
 }
 

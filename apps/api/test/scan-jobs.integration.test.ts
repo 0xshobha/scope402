@@ -78,10 +78,13 @@ test('recovers durable paid scan fulfillment', async (t) => {
     assert.equal(completed.status, 'complete')
     assert.equal(completed.lease.policy_hash, input.policy?.policyHash)
     assert.equal(completed.lease.aud, input.policy?.audience)
+    assert.deepEqual(completed.lease.resource, input.policy?.resource)
     assert.equal(scans, 2)
-    assert.equal((await database().query(
-      `SELECT policy_hash FROM tool_leases WHERE hedera_tx_id = $1`,
-      [input.transactionId])).rows[0].policy_hash, input.policy?.policyHash)
+    assert.deepEqual((await database().query(
+      `SELECT policy_hash, resource FROM tool_leases WHERE hedera_tx_id = $1`,
+      [input.transactionId])).rows[0], {
+        policy_hash: input.policy?.policyHash, resource: input.policy?.resource,
+      })
     assert.equal((await database().query(
       `SELECT count(*)::int AS count FROM payment_redemptions WHERE transaction_id = $1`,
       [input.transactionId])).rows[0].count, 1)

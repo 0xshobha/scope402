@@ -2,6 +2,7 @@ import { createPrivateKey, createPublicKey, sign, verify, type KeyObject } from 
 import { readFile } from 'node:fs/promises'
 import { canonicalJson } from '../canonical.js'
 import { LeaseError } from '../lease-error.js'
+import { isScope402Resource, type Scope402Resource } from './policy.js'
 
 export type BaseLeaseClaims = {
   lease_id: string
@@ -14,6 +15,7 @@ export type BaseLeaseClaims = {
   offer_id: string
   hedera_tx_id: string
   policy_hash?: string
+  resource?: Scope402Resource
 }
 
 export const encodeJwsPart = (value: string | Buffer) => Buffer.from(value).toString('base64url')
@@ -75,7 +77,8 @@ export function verifyLease(token: string, key: KeyObject): BaseLeaseClaims {
       !Number.isSafeInteger(value.max_calls) || Number(value.max_calls) < 1 ||
       !Number.isSafeInteger(value.exp) || typeof value.offer_id !== 'string' ||
       typeof value.hedera_tx_id !== 'string' ||
-      (value.policy_hash !== undefined && !/^sha256:[0-9a-f]{64}$/.test(value.policy_hash))) {
+      (value.policy_hash !== undefined && !/^sha256:[0-9a-f]{64}$/.test(value.policy_hash)) ||
+      (value.resource !== undefined && !isScope402Resource(value.resource))) {
     throw new LeaseError('LEASE_REQUIRED', 'Lease claims are invalid')
   }
   return value as BaseLeaseClaims

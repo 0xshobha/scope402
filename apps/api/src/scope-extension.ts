@@ -1,7 +1,7 @@
 import type { RepositorySnapshot } from './github.js'
 import { PaymentError } from './payment-error.js'
 import { exactPolicyEcho, hasExactKeys, scope402PolicyHash as hashPolicy,
-  type Scope402PolicyBase } from './scope402/policy.js'
+  type GitHubRepositoryResource, type Scope402PolicyBase } from './scope402/policy.js'
 
 export const SCOPE402_EXTENSION_KEY = 'scope402'
 
@@ -22,9 +22,9 @@ export const SCOPE402_EXTENSION_SCHEMA = {
   },
 } as const
 
-export type Scope402Policy = Scope402PolicyBase<{
-  kind: 'github-repository'; id: string; revision: string
-}> & { tools: ['finding_details']; maxCalls: 3; ttlSeconds: 300 }
+export type Scope402Policy = Scope402PolicyBase<GitHubRepositoryResource> & {
+  tools: ['finding_details']; maxCalls: 3; ttlSeconds: 300
+}
 
 export type Scope402PolicyInfo = Scope402Policy & { policyHash: string }
 export type Scope402Extensions = {
