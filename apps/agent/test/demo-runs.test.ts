@@ -116,6 +116,61 @@ test('balance and global spend limits fail closed before payment execution', asy
   assert.equal(approvals, 0)
 })
 
+test('a balance-floor failure does not consume approval or spend quota', async () => {
+  let balance = 1_000_000n
+  let approvals = 0
+  const scan = prepared()
+  const service = new DemoRunService({
+    prepare: async () => scan,
+    approve: async () => { approvals += 1; return { result: result(scan) } },
+    payerBalanceTinybars: async () => balance,
+  }, { ...limits, globalApprovalsPerHour: 1, maxHourlySpendTinybars: 50_500n })
+  const failed = await service.create(scan.repoUrl, '203.0.113.1')
+  await assert.rejects(service.approve(failed.run.run_id, failed.run_token),
+    (error) => error instanceof DemoRunError && error.code === 'DEMO_BALANCE_FLOOR')
+  balance = 2_000_000n
+  const retry = await service.create(scan.repoUrl, '203.0.113.1')
+  assert.equal((await service.approve(retry.run.run_id, retry.run_token)).state, 'COMPLETE')
+  assert.equal(approvals, 1)
+})
+
+test('concurrent balance checks cannot oversubscribe approval quota', async () => {
+  const scan = prepared()
+  let approvals = 0
+  const service = new DemoRunService({
+    prepare: async () => scan,
+    approve: async () => { approvals += 1; return { result: result(scan) } },
+    payerBalanceTinybars: async () => 2_000_000n,
+  }, { ...limits, globalApprovalsPerHour: 1, maxHourlySpendTinybars: 50_500n })
+  const first = await service.create(scan.repoUrl, '203.0.113.1')
+  const second = await service.create(scan.repoUrl, '203.0.113.2')
+  const outcomes = await Promise.allSettled([
+    service.approve(first.run.run_id, first.run_token),
+    service.approve(second.run.run_id, second.run_token),
+  ])
+  assert.equal(outcomes.filter((outcome) => outcome.status === 'fulfilled').length, 1)
+  const rejected = outcomes.find((outcome) => outcome.status === 'rejected') as PromiseRejectedResult
+  assert.equal(rejected.reason instanceof DemoRunError && rejected.reason.code, 'DEMO_SPEND_LIMITED')
+  assert.equal(approvals, 1)
+})
+
+test('a payment-attempt failure conservatively retains its spend reservation', async () => {
+  const scan = prepared()
+  let approvals = 0
+  const service = new DemoRunService({
+    prepare: async () => scan,
+    approve: async () => { approvals += 1; throw new Error('ambiguous provider failure') },
+    payerBalanceTinybars: async () => 2_000_000n,
+  }, { ...limits, globalApprovalsPerHour: 1, maxHourlySpendTinybars: 50_500n })
+  const failed = await service.create(scan.repoUrl, '203.0.113.1')
+  await assert.rejects(service.approve(failed.run.run_id, failed.run_token),
+    (error) => error instanceof DemoRunError && error.code === 'DEMO_PAYMENT_FAILED')
+  const next = await service.create(scan.repoUrl, '203.0.113.2')
+  assert.throws(() => service.approve(next.run.run_id, next.run_token),
+    (error) => error instanceof DemoRunError && error.code === 'DEMO_SPEND_LIMITED')
+  assert.equal(approvals, 1)
+})
+
 test('capability actions are private, ordered, idempotent, and update the public budget', async () => {
   const scan = prepared()
   let executions = 0

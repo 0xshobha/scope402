@@ -2,6 +2,7 @@ import { Hono } from 'hono'
 import type { Context } from 'hono'
 import { bodyLimit } from 'hono/body-limit'
 import { cors } from 'hono/cors'
+import { isIP } from 'node:net'
 import { DemoRunError, DemoRunService } from './demo-runs.js'
 import type { DemoActionName } from './capability-demo.js'
 
@@ -9,12 +10,16 @@ function bearer(value: string | undefined) {
   return value?.startsWith('Bearer ') ? value.slice(7) : ''
 }
 
-function clientIp(cloudflare: string | undefined, forwarded: string | undefined,
-  real: string | undefined) {
-  return cloudflare?.trim() || forwarded?.split(',').at(-1)?.trim() || real || 'unknown'
+export type TrustedProxy = 'none' | 'render'
+
+function clientIp(cloudflare: string | undefined, trustedProxy: TrustedProxy) {
+  if (trustedProxy !== 'render') return 'unknown'
+  const address = cloudflare?.trim() ?? ''
+  return isIP(address) ? address : 'unknown'
 }
 
-export function createDemoAgentApp(service: DemoRunService, allowedOrigins: Set<string>) {
+export function createDemoAgentApp(service: DemoRunService, allowedOrigins: Set<string>,
+  trustedProxy: TrustedProxy = 'none') {
   const app = new Hono()
   app.use('*', cors({
     origin: (origin) => allowedOrigins.has(origin) ? origin : '',
@@ -45,8 +50,7 @@ export function createDemoAgentApp(service: DemoRunService, allowedOrigins: Set<
         throw new DemoRunError('INVALID_REQUEST', 400, 'Only repo_url is accepted')
       }
       return c.json(await service.create(body.repo_url,
-        clientIp(c.req.header('cf-connecting-ip'), c.req.header('x-forwarded-for'),
-          c.req.header('x-real-ip'))), 202)
+        clientIp(c.req.header('cf-connecting-ip'), trustedProxy)), 202)
     } catch (error) {
       return demoError(c, error)
     }

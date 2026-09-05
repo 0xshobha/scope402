@@ -120,6 +120,21 @@ export class DemoRunService {
     }
   }
 
+  private assertApprovalCapacity(now: number, amount: bigint) {
+    this.trim(now)
+    if (this.approvals.length >= this.limits.globalApprovalsPerHour ||
+        this.approvals.reduce((total, item) => total + item.amount, 0n) + amount >
+          this.limits.maxHourlySpendTinybars) {
+      throw new DemoRunError('DEMO_SPEND_LIMITED', 429, 'Hosted demo-agent spend limit reached')
+    }
+  }
+
+  private reserveApproval(amount: bigint) {
+    const now = this.now()
+    this.assertApprovalCapacity(now, amount)
+    this.approvals.push({ at: now, amount })
+  }
+
   async create(repoUrl: string, ip: string) {
     const now = this.now()
     this.trim(now)
@@ -183,13 +198,7 @@ export class DemoRunService {
     if (run.approval) return run.approval
     const amount = BigInt(run.prepared.terms.amount)
     const now = this.now()
-    this.trim(now)
-    if (this.approvals.length >= this.limits.globalApprovalsPerHour ||
-        this.approvals.reduce((total, item) => total + item.amount, 0n) + amount >
-          this.limits.maxHourlySpendTinybars) {
-      throw new DemoRunError('DEMO_SPEND_LIMITED', 429, 'Hosted demo-agent spend limit reached')
-    }
-    this.approvals.push({ at: now, amount })
+    this.assertApprovalCapacity(now, amount)
     run.public.state = 'SETTLING'
     run.approval = (async () => {
       try {
@@ -197,6 +206,7 @@ export class DemoRunService {
         if (balance - amount < this.limits.minimumBalanceTinybars) {
           throw new DemoRunError('DEMO_BALANCE_FLOOR', 409, 'Hosted demo-agent balance floor reached')
         }
+        this.reserveApproval(amount)
         const approved = await this.dependencies.approve(run.prepared)
         run.result = approved.result
         if (approved.result.findings.length && this.dependencies.createCapabilitySession) {

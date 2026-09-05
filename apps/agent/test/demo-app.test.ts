@@ -49,12 +49,13 @@ test('HTTP boundary accepts only repo_url and rejects browser payment fields', a
 
   const created = await app.request('/demo/runs', { method: 'POST',
     headers: { 'Content-Type': 'application/json', 'cf-connecting-ip': '203.0.113.1',
-      'x-forwarded-for': '198.51.100.77' },
+      'x-forwarded-for': '198.51.100.77', 'x-real-ip': '198.51.100.78' },
     body: JSON.stringify({ repo_url: data.prepared.repoUrl }) })
   assert.equal(created.status, 202)
   const spoofed = await app.request('/demo/runs', { method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'cf-connecting-ip': '203.0.113.1',
-      'x-forwarded-for': '192.0.2.99' }, body: JSON.stringify({ repo_url: data.prepared.repoUrl }) })
+    headers: { 'Content-Type': 'application/json', 'cf-connecting-ip': '203.0.113.99',
+      'x-forwarded-for': '192.0.2.99', 'x-real-ip': '192.0.2.100' },
+    body: JSON.stringify({ repo_url: data.prepared.repoUrl }) })
   assert.equal(spoofed.status, 409)
   assert.equal((await spoofed.json() as { error: string }).error, 'DEMO_RUN_ACTIVE')
   const body = await created.json() as { run: { run_id: string }; run_token: string }
@@ -62,6 +63,26 @@ test('HTTP boundary accepts only repo_url and rejects browser payment fields', a
     headers: { Authorization: `Bearer ${body.run_token}` },
     body: JSON.stringify({ transaction: 'caller-controlled' }) })
   assert.equal(approve.status, 400)
+})
+
+test('Render proxy mode uses Cloudflare client IP and ignores forwarded alternatives', async () => {
+  const data = fixture()
+  const app = createDemoAgentApp(new DemoRunService({
+    prepare: async () => data.prepared, approve: async () => ({ result: data.result }),
+    payerBalanceTinybars: async () => 10_000_000n,
+  }, limits), new Set(), 'render')
+  const create = (headers: Record<string, string>) => app.request('/demo/runs', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', ...headers },
+    body: JSON.stringify({ repo_url: data.prepared.repoUrl }),
+  })
+  assert.equal((await create({ 'cf-connecting-ip': '203.0.113.1',
+    'x-real-ip': '192.0.2.11', 'x-forwarded-for': '192.0.2.12, 10.0.0.1' })).status, 202)
+  const sameClient = await create({ 'cf-connecting-ip': '203.0.113.1',
+    'x-real-ip': '192.0.2.21', 'x-forwarded-for': '192.0.2.22, 10.0.0.2' })
+  assert.equal(sameClient.status, 409)
+  assert.equal((await sameClient.json() as { error: string }).error, 'DEMO_RUN_ACTIVE')
+  assert.equal((await create({ 'cf-connecting-ip': '203.0.113.2',
+    'x-real-ip': '192.0.2.31', 'x-forwarded-for': '192.0.2.32, 10.0.0.3' })).status, 202)
 })
 
 test('HTTP boundary requires the opaque run capability', async () => {

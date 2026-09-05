@@ -1,5 +1,5 @@
 import { serve } from '@hono/node-server'
-import { createDemoAgentApp } from './demo-app.js'
+import { createDemoAgentApp, type TrustedProxy } from './demo-app.js'
 import { createCapabilitySession } from './capability-demo.js'
 import { DemoRunService, type DemoRunLimits } from './demo-runs.js'
 import { approveScanPurchase, prepareScanPurchase, type PayerConfig } from './purchase.js'
@@ -51,7 +51,13 @@ function config() {
   const allowedOrigins = new Set((process.env.DEMO_ALLOWED_ORIGINS ??
     'https://scope402.onrender.com,http://127.0.0.1:4173,http://localhost:4173')
     .split(',').map((value) => value.trim()).filter(Boolean))
-  return { payerConfig, limits, allowedOrigins, demoControlSecret: required('DEMO_CONTROL_SECRET') }
+  const trustedProxy = process.env.DEMO_TRUSTED_PROXY ??
+    (process.env.RENDER === 'true' ? 'render' : 'none')
+  if (!['none', 'render'].includes(trustedProxy)) {
+    throw new Error('DEMO_TRUSTED_PROXY must be none or render')
+  }
+  return { payerConfig, limits, allowedOrigins, demoControlSecret: required('DEMO_CONTROL_SECRET'),
+    trustedProxy: trustedProxy as TrustedProxy }
 }
 
 async function payerBalanceTinybars(accountId: string) {
@@ -67,7 +73,7 @@ async function payerBalanceTinybars(accountId: string) {
   return BigInt(balance)
 }
 
-const { payerConfig, limits, allowedOrigins, demoControlSecret } = config()
+const { payerConfig, limits, allowedOrigins, demoControlSecret, trustedProxy } = config()
 const service = new DemoRunService({
   prepare: (repoUrl) => prepareScanPurchase(payerConfig, repoUrl, ephemeralSubject()),
   approve: (prepared) => approveScanPurchase(payerConfig, prepared),
@@ -76,7 +82,7 @@ const service = new DemoRunService({
     createCapabilitySession(prepared, result, demoControlSecret),
   logError: (message) => console.error(`Demo approval failed: ${message}`),
 }, limits)
-const app = createDemoAgentApp(service, allowedOrigins)
+const app = createDemoAgentApp(service, allowedOrigins, trustedProxy)
 const port = Number(process.env.PORT ?? 3001)
 
 serve({ fetch: app.fetch, hostname: '0.0.0.0', port }, (info) => {
