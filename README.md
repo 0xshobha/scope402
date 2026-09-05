@@ -1,0 +1,132 @@
+# Scope402
+
+**Payment is not authorization.**
+
+Scope402 is an x402 service that accepts HBAR for useful work, then issues a short-lived capability describing what the payer may do afterward. The reference merchant, AuditLab, scans a public GitHub repository and grants the paying agent three signed calls to `finding_details` for five minutes.
+
+Public API: [scope402-auditlab.onrender.com](https://scope402-auditlab.onrender.com/health)
+
+## Why
+
+An x402 settlement proves that money moved. It does not make a bearer credential safe to steal, stop a paid action from being replayed, or define a budget for later calls. Scope402 keeps those concerns separate:
+
+```text
+Scope402 Agent                 AuditLab                     Hedera
+      |                           |                            |
+      | POST /v1/scans           |                            |
+      |-------------------------->|                            |
+      | 402 PAYMENT-REQUIRED     |                            |
+      |<--------------------------|                            |
+      |                           |                            |
+      | PAYMENT-SIGNATURE        | verify + settle via        |
+      |-------------------------->| Blocky402 ---------------->|
+      |                           |                            |
+      |              scan repository at an exact commit       |
+      |              issue P-256 subject-bound ToolLease      |
+      |<-------------------------------------------------------|
+      |                           |                            |
+      | signed finding_details   |                            |
+      |-------------------------->| atomic counter + budget    |
+      | finding                  | enforcement in PostgreSQL  |
+      |<--------------------------|                            |
+```
+
+The browser is not trusted with either the Hedera payer key or the subject private key. The payer is a separate Node.js process. The merchant never pays itself.
+
+## Implemented
+
+- x402 v2 HTTP flow using `PAYMENT-REQUIRED`, `PAYMENT-SIGNATURE`, and `PAYMENT-RESPONSE`
+- Blocky402 discovery, verification, and Hedera testnet settlement
+- native HBAR payment with distinct payer and merchant accounts
+- durable quote and transaction replay protection
+- public GitHub commit resolution and one bounded hygiene check
+- compact ES256 ToolLease bound to the payer agent's P-256 subject key
+- five-minute expiry and three-call budget
+- RFC 8785/JCS argument hashing
+- atomic counter and budget consumption in PostgreSQL
+- explicit wrong-key, replay, expiry, and concurrent-counter tests
+
+There is intentionally one merchant tool: `finding_details`.
+
+## Public proof
+
+A public-origin run against `expressjs/express` completed payment, scanning, lease issuance, an authorized follow-up, and replay denial.
+
+- Transaction: `0.0.7162784@1788580086.153684986`
+- [HashScan](https://hashscan.io/testnet/transaction/0.0.7162784-1788580086-153684986)
+- Payer: `0.0.8258066`
+- Merchant: `0.0.8258555`
+- Amount: `100000` tinybars (`0.001 HBAR`)
+- Scanned commit: `023767fe9872e029271df1418f73401bff20ff40`
+- Lease audience: `https://scope402-auditlab.onrender.com/v1/tools`
+
+The Hedera Mirror Node reports `SUCCESS` and the corresponding 100,000 tinybar payer debit and merchant credit. A repeated signed invocation returned `403 REPLAY_DETECTED`.
+
+## Run locally
+
+Requirements: Node.js 22+, pnpm through Corepack, and PostgreSQL.
+
+```bash
+corepack pnpm install --frozen-lockfile
+cp apps/api/.env.example apps/api/.env
+corepack pnpm build
+corepack pnpm start
+```
+
+API environment:
+
+```text
+DATABASE_URL=
+HEDERA_MERCHANT_ACCOUNT_ID=
+SCAN_PRICE_TINYBARS=100000
+AUDITLAB_URL=http://127.0.0.1:3000
+TOOL_LEASE_PRIVATE_KEY_PATH=/absolute/path/to/p256-private-key.pem
+GITHUB_TOKEN=
+```
+
+Generate the merchant's lease-signing key outside the repository:
+
+```bash
+openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 -out ~/.config/scope402/lease-signing.pem
+chmod 600 ~/.config/scope402/lease-signing.pem
+```
+
+The agent additionally requires its own funded Hedera testnet payer account and private key. Keep those values in an environment file outside the repository:
+
+```text
+AUDITLAB_URL=http://127.0.0.1:3000
+HEDERA_PAYER_ACCOUNT_ID=
+HEDERA_PAYER_PRIVATE_KEY=
+HEDERA_MERCHANT_ACCOUNT_ID=
+MAX_PAYMENT_TINYBARS=100000
+```
+
+Run the paid client:
+
+```bash
+node --env-file=/path/to/agent.env apps/agent/dist/index.js https://github.com/expressjs/express
+```
+
+## Verify
+
+```bash
+corepack pnpm typecheck
+corepack pnpm test
+corepack pnpm build
+```
+
+`pnpm test` includes PostgreSQL integration tests. It verifies a legitimate tool call, subject-key mismatch, invocation replay, server-side expiry, invalid finding behavior, and the concurrent same-counter race.
+
+## Current boundaries
+
+- Hedera **testnet**, not mainnet
+- public GitHub repositories only
+- one deterministic repository check and one follow-up tool
+- fixed bootstrap price; workload metering is not implemented yet
+- API is public; the payer agent remains local so its keys remain outside the service
+- settlement is durable, but a post-settlement GitHub failure is not yet resumable
+- no HCS anchoring, Agent Kit plugin, browser UI, or additional sponsor integration yet
+
+## AI assistance
+
+AI tools assisted with research, implementation, and review. Every claimed payment, deployment, scan, and authorization result above was exercised against the named live or testnet boundary; local tests are described separately from public proof.
