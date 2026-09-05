@@ -4,6 +4,8 @@
 
 Scope402 is an x402 service that accepts HBAR for useful work, then issues a short-lived capability describing what the payer may do afterward. The reference merchant, AuditLab, scans a public GitHub repository and grants the paying agent three signed calls to `finding_details` for five minutes.
 
+The locally implemented Tessera merchant reuses the same authorization kernel for a spatial resource: a principal purchases an `8 × 8` paint capability, then delegates a strictly narrower, conserved call budget to a different P-256 worker. Tessera is not yet part of the public browser demo or public payment proof.
+
 Public API: [scope402-auditlab.onrender.com](https://scope402-auditlab.onrender.com/health)
 
 Public web: [scope402.onrender.com](https://scope402.onrender.com)
@@ -54,8 +56,13 @@ The browser is not trusted with either the Hedera payer key or the subject priva
   wrong-key denial, replay denial, and expiry denial
 - x402 v2 `scope402` extension that binds the declared subject, exact resource revision, tool allowlist,
   call budget, and lease lifetime before the payer signs
+- merchant-independent policy, lease, invocation, replay, expiry, budget, and resource-authorization kernel
+- locally tested Tessera `POST /v1/plots`, server-authoritative canvas, and atomic `place_pixel` execution
+- parent-signed Tessera attenuation to a distinct worker key with strict rectangle containment, immutable
+  payment lineage, separate delegation replay counters, and conserved parent/child budgets
 
-There is intentionally one merchant tool: `finding_details`.
+AuditLab exposes `finding_details`; Tessera exposes `place_pixel`. Only AuditLab currently has a public,
+judge-runnable payment-to-denial demonstration.
 
 ## Public proof
 
@@ -135,7 +142,9 @@ corepack pnpm test
 corepack pnpm build
 ```
 
-`pnpm test` includes PostgreSQL integration tests. It verifies a legitimate tool call, subject-key mismatch, invocation replay, server-side expiry, invalid finding behavior, and the concurrent same-counter race.
+`pnpm test` includes PostgreSQL integration tests. It verifies AuditLab payment recovery and ToolLease
+enforcement plus Tessera slot reservation, atomic pixel mutation, resource denial, parent-signed delegation,
+immutable lineage, root expiry, budget conservation, and concurrent invocation/delegation races.
 
 ## Current boundaries
 
@@ -149,8 +158,8 @@ corepack pnpm build
 - browser actions are fixed requests to the hosted agent; keys, lease tokens, signatures, and demo-control secrets
   remain outside the browser
 - no HCS anchoring, Agent Kit plugin, or additional sponsor integration yet
-- Tessera currently exposes only the locally tested paid root-capability purchase boundary; pixel placement,
-  delegation, the canvas UI, ENS, and WebMCP are not implemented or deployed yet
+- Tessera's paid-root, atomic pixel, and one-level delegation backends are locally tested; its hosted-agent
+  orchestration, browser UI, real public HBAR transaction, ENS, and WebMCP are not implemented or deployed yet
 
 ## AI assistance
 
