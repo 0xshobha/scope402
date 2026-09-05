@@ -115,4 +115,35 @@ test('enforces ToolLease subject, counter, and server expiry', async (t) => {
     assert.equal(response.status, 410)
     assert.equal((await response.json()).error, 'LEASE_EXPIRED')
   })
+
+  await t.test('expires a lease through an enabled demo control', async () => {
+    const issued = await lease()
+    const previous = process.env.ENABLE_DEMO_CONTROLS
+    process.env.ENABLE_DEMO_CONTROLS = 'true'
+    try {
+      const expired = await app.request(`/v1/leases/${issued.claims.lease_id}/expire`, { method: 'POST' })
+      assert.equal(expired.status, 200)
+      assert.deepEqual(await expired.json(), { lease_id: issued.claims.lease_id, status: 'expired' })
+      const response = await request(issued.token, issued.claims, 1)
+      assert.equal(response.status, 410)
+      assert.equal((await response.json()).error, 'LEASE_EXPIRED')
+    } finally {
+      if (previous === undefined) delete process.env.ENABLE_DEMO_CONTROLS
+      else process.env.ENABLE_DEMO_CONTROLS = previous
+    }
+  })
+
+  await t.test('hides disabled and unknown demo controls', async () => {
+    const previous = process.env.ENABLE_DEMO_CONTROLS
+    delete process.env.ENABLE_DEMO_CONTROLS
+    try {
+      assert.equal((await app.request(`/v1/leases/${randomUUID()}/expire`, { method: 'POST' })).status, 404)
+      process.env.ENABLE_DEMO_CONTROLS = 'true'
+      assert.equal((await app.request(`/v1/leases/${randomUUID()}/expire`, { method: 'POST' })).status, 404)
+      assert.equal((await app.request('/v1/leases/not-a-uuid/expire', { method: 'POST' })).status, 404)
+    } finally {
+      if (previous === undefined) delete process.env.ENABLE_DEMO_CONTROLS
+      else process.env.ENABLE_DEMO_CONTROLS = previous
+    }
+  })
 })
