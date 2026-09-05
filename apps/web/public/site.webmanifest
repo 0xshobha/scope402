@@ -1,0 +1,17 @@
+{
+  "name": "Scope402",
+  "short_name": "Scope402",
+  "description": "Payment is not authorization.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f5f2ea",
+  "theme_color": "#f5f2ea",
+  "icons": [
+    {
+      "src": "/scope402-logo.png",
+      "sizes": "1254x1254",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}

@@ -76,7 +76,12 @@ export function App() {
   }
   return <main>
     <header className="site-header">
-      <a className="brand" href="#top">SCOPE<span>402</span></a>
+      <a className="brand" href="#top" aria-label="Scope402 home">
+        <span className="brand-mark" aria-hidden="true">
+          <img src="/scope402-logo.png" width="78" height="78" alt="" />
+        </span>
+        <span className="brand-wordmark">SCOPE<span>402</span></span>
+      </a>
       <nav aria-label="Primary navigation">
         <a href="/demo">LIVE DEMO</a>
         <a href="#mechanism">MECHANISM</a>
