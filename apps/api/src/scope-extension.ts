@@ -1,8 +1,7 @@
-import { createHash } from 'node:crypto'
-import { isDeepStrictEqual } from 'node:util'
-import { canonicalJson } from './canonical.js'
 import type { RepositorySnapshot } from './github.js'
 import { PaymentError } from './payment-error.js'
+import { exactPolicyEcho, hasExactKeys, scope402PolicyHash as hashPolicy,
+  type Scope402PolicyBase } from './scope402/policy.js'
 
 export const SCOPE402_EXTENSION_KEY = 'scope402'
 
@@ -23,15 +22,9 @@ export const SCOPE402_EXTENSION_SCHEMA = {
   },
 } as const
 
-export type Scope402Policy = {
-  version: 1
-  subject: { scheme: 'p256'; publicKey: string }
-  audience: string
-  resource: { kind: 'github-repository'; id: string; revision: string }
-  tools: ['finding_details']
-  maxCalls: 3
-  ttlSeconds: 300
-}
+export type Scope402Policy = Scope402PolicyBase<{
+  kind: 'github-repository'; id: string; revision: string
+}> & { tools: ['finding_details']; maxCalls: 3; ttlSeconds: 300 }
 
 export type Scope402PolicyInfo = Scope402Policy & { policyHash: string }
 export type Scope402Extensions = {
@@ -39,12 +32,7 @@ export type Scope402Extensions = {
 }
 
 export function scope402PolicyHash(policy: Scope402Policy) {
-  return `sha256:${createHash('sha256').update(canonicalJson(policy)).digest('hex')}`
-}
-
-function hasExactKeys(value: unknown, keys: string[]) {
-  return typeof value === 'object' && value !== null &&
-    isDeepStrictEqual(Object.keys(value).sort(), [...keys].sort())
+  return hashPolicy(policy)
 }
 
 export function scope402Extension(subjectPubkey: string, snapshot: RepositorySnapshot, audience: string) {
@@ -72,12 +60,12 @@ export function parseScope402Extension(value: unknown): Scope402Extensions {
       !hasExactKeys(info, ['version', 'subject', 'audience', 'resource', 'tools', 'maxCalls', 'ttlSeconds', 'policyHash']) ||
       !hasExactKeys(info.subject, ['scheme', 'publicKey']) ||
       !hasExactKeys(info.resource, ['kind', 'id', 'revision']) ||
-      !isDeepStrictEqual(extension.schema, SCOPE402_EXTENSION_SCHEMA) ||
+      !exactPolicyEcho(extension.schema, SCOPE402_EXTENSION_SCHEMA) ||
       info.version !== 1 || info.subject?.scheme !== 'p256' ||
       typeof info.subject.publicKey !== 'string' || typeof info.audience !== 'string' ||
       info.resource?.kind !== 'github-repository' || typeof info.resource.id !== 'string' ||
       !/^[0-9a-f]{40}$/.test(info.resource.revision) ||
-      !isDeepStrictEqual(info.tools, ['finding_details']) || info.maxCalls !== 3 ||
+      !exactPolicyEcho(info.tools, ['finding_details']) || info.maxCalls !== 3 ||
       info.ttlSeconds !== 300 || info.policyHash !== scope402PolicyHash(policy as Scope402Policy)) {
     throw new PaymentError('PAYMENT_STATE_ERROR', 'Stored Scope402 policy is invalid')
   }
@@ -100,7 +88,7 @@ export function parseScope402PolicyInfo(value: unknown): Scope402PolicyInfo {
 }
 
 export function assertScope402Echo(payload: { extensions?: unknown }, expected: unknown) {
-  if (!isDeepStrictEqual(payload.extensions, expected)) {
+  if (!exactPolicyEcho(payload.extensions, expected)) {
     throw new PaymentError('PAYMENT_REQUIREMENTS_MISMATCH', 'Payment does not echo the quoted Scope402 policy')
   }
 }

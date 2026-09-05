@@ -1,5 +1,8 @@
 import { Pool, type PoolClient } from 'pg'
 
+declare const transactionClient: unique symbol
+export type TransactionClient = PoolClient & { readonly [transactionClient]: true }
+
 let pool: Pool | undefined
 
 export function database() {
@@ -74,11 +77,11 @@ export async function closeDatabase() {
   pool = undefined
 }
 
-export async function transaction<T>(run: (client: PoolClient) => Promise<T>) {
+export async function transaction<T>(run: (client: TransactionClient) => Promise<T>) {
   const client = await database().connect()
   try {
     await client.query('BEGIN')
-    const result = await run(client)
+    const result = await run(client as TransactionClient)
     await client.query('COMMIT')
     return result
   } catch (error) {

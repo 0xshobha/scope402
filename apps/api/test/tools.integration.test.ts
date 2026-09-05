@@ -98,6 +98,18 @@ test('enforces ToolLease subject, counter, and server expiry', async (t) => {
     assert.deepEqual(state.rows[0], { used_calls: 0, last_counter: 0 })
   })
 
+  await t.test('preserves replay denial for a lease bound to another scan', async () => {
+    const issued = await lease()
+    const changedClaims = { ...issued.claims, scan_id: randomUUID() }
+    const response = await request(signLease(changedClaims, service.privateKey), changedClaims, 1)
+    assert.equal(response.status, 403)
+    assert.equal((await response.json()).error, 'REPLAY_DETECTED')
+    const state = await database().query(
+      `SELECT used_calls, last_counter FROM tool_leases WHERE lease_id = $1`,
+      [issued.claims.lease_id])
+    assert.deepEqual(state.rows[0], { used_calls: 0, last_counter: 0 })
+  })
+
   await t.test('atomically allows only one concurrent use of a counter', async () => {
     const issued = await lease()
     const responses = await Promise.all([
