@@ -5,6 +5,7 @@ import type { PaymentRequirements } from '@x402/core/types'
 import type { RepositorySnapshot } from './github.js'
 import { database, transaction } from './db.js'
 import { PaymentError } from './payment-error.js'
+import { parseScope402Extension, type Scope402Extensions } from './scope-extension.js'
 
 function assertQuoteId(quoteId: string) {
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(quoteId)) {
@@ -14,10 +15,17 @@ function assertQuoteId(quoteId: string) {
 
 export async function createQuote(repoUrl: string, subjectPubkey: string,
   endpoint: string, requirements: PaymentRequirements, snapshot: RepositorySnapshot,
-  pricing: Pricing) {
+  pricing: Pricing, extensions: Scope402Extensions) {
   if (pricing.files_considered !== snapshot.root_files.length ||
       pricing.total_tinybars !== requirements.amount) {
     throw new PaymentError('PAYMENT_STATE_ERROR', 'Quote snapshot, pricing, and payment amount disagree')
+  }
+  const storedExtensions = parseScope402Extension(extensions)
+  const policy = storedExtensions.scope402.info
+  const expectedAudience = new URL('/v1/tools', endpoint).href
+  if (policy.subject.publicKey !== subjectPubkey || policy.resource.id !== snapshot.repo ||
+      policy.resource.revision !== snapshot.commit_sha || policy.audience !== expectedAudience) {
+    throw new PaymentError('PAYMENT_STATE_ERROR', 'Scope402 policy does not match quote inputs')
   }
   const quoteId = randomUUID()
   const resourceUrl = new URL(endpoint)
@@ -25,11 +33,12 @@ export async function createQuote(repoUrl: string, subjectPubkey: string,
   await database().query(
     `INSERT INTO payment_quotes
        (quote_id, repo_url, subject_pubkey, resource_url, requirements, expires_at,
-        repository_name, commit_sha, root_files, files_considered, pricing)
-     VALUES ($1, $2, $3, $4, $5, now() + interval '5 minutes', $6, $7, $8, $9, $10)`,
+        repository_name, commit_sha, root_files, files_considered, pricing,
+        scope402_extension, policy_hash)
+     VALUES ($1, $2, $3, $4, $5, now() + interval '5 minutes', $6, $7, $8, $9, $10, $11, $12)`,
     [quoteId, repoUrl, subjectPubkey, resourceUrl.href, JSON.stringify(requirements),
       snapshot.repo, snapshot.commit_sha, JSON.stringify(snapshot.root_files),
-      snapshot.root_files.length, JSON.stringify(pricing)],
+      snapshot.root_files.length, JSON.stringify(pricing), JSON.stringify(storedExtensions), policy.policyHash],
   )
   return { quoteId, resourceUrl: resourceUrl.href }
 }
@@ -39,7 +48,7 @@ export async function loadQuote(quoteId: string, repoUrl: string, subjectPubkey:
   assertQuoteId(quoteId)
   const result = await database().query(
     `SELECT resource_url, requirements, repository_name, commit_sha, root_files,
-            files_considered, pricing
+            files_considered, pricing, scope402_extension, policy_hash
      FROM payment_quotes
      WHERE quote_id = $1 AND repo_url = $2 AND subject_pubkey = $3
        AND ($4::boolean OR expires_at > now())`,
@@ -59,6 +68,15 @@ export async function loadQuote(quoteId: string, repoUrl: string, subjectPubkey:
       root_files: row.root_files as string[],
     } : undefined
   const pricing = parsePricing(row.pricing, row.files_considered)
+  const storedExtension = row.scope402_extension === null ? undefined : parseScope402Extension(row.scope402_extension)
+  const expectedAudience = new URL('/v1/tools', String(row.resource_url)).href
+  if (storedExtension && (row.policy_hash !== storedExtension.scope402.info.policyHash ||
+      storedExtension.scope402.info.subject.publicKey !== subjectPubkey ||
+      storedExtension.scope402.info.resource.id !== row.repository_name ||
+      storedExtension.scope402.info.resource.revision !== row.commit_sha ||
+      storedExtension.scope402.info.audience !== expectedAudience)) {
+    throw new PaymentError('PAYMENT_STATE_ERROR', 'Stored Scope402 policy does not match quote state')
+  }
   if (!legacyQuote && (!snapshot || !pricing || pricing.total_tinybars !== row.requirements.amount)) {
     throw new PaymentError('PAYMENT_STATE_ERROR', 'Stored quote snapshot or pricing is invalid')
   }
@@ -67,6 +85,8 @@ export async function loadQuote(quoteId: string, repoUrl: string, subjectPubkey:
     requirements: PaymentRequirementsV2Schema.parse(row.requirements) as PaymentRequirements,
     snapshot,
     pricing,
+    scope402Extension: storedExtension,
+    policyHash: storedExtension?.scope402.info.policyHash,
   }
 }
 

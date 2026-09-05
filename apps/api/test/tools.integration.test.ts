@@ -13,7 +13,7 @@ const subjectPubkey = subject.publicKey.export({ format: 'der', type: 'spki' }).
 const attackerPubkey = attacker.publicKey.export({ format: 'der', type: 'spki' }).toString('base64url')
 process.env.TOOL_LEASE_PRIVATE_KEY = service.privateKey.export({ format: 'pem', type: 'pkcs8' }).toString()
 
-async function lease() {
+async function lease(legacy = false) {
   const exp = Math.floor(Date.now() / 1000) + 300
   const claims: LeaseClaims = {
     lease_id: randomUUID(), subject_pubkey: subjectPubkey,
@@ -21,14 +21,15 @@ async function lease() {
     catalogue_hash: createHash('sha256').update(canonicalJson(['finding_details'])).digest('hex'),
     tool_ids: ['finding_details'], max_calls: 3, exp,
     offer_id: randomUUID(), hedera_tx_id: `0.0.1@${Date.now()}.${String(Math.random()).slice(2, 11)}`,
-    scan_id: randomUUID(),
+    scan_id: randomUUID(), ...(legacy ? {} : { policy_hash: `sha256:${'a'.repeat(64)}` }),
   }
   await database().query(
     `INSERT INTO tool_leases
-       (lease_id, subject_pubkey, scan_id, hedera_tx_id, expires_at, max_calls, findings)
-     VALUES ($1, $2, $3, $4, to_timestamp($5), $6, $7)`,
+       (lease_id, subject_pubkey, scan_id, hedera_tx_id, expires_at, max_calls, policy_hash, findings)
+     VALUES ($1, $2, $3, $4, to_timestamp($5), $6, $7, $8)`,
     [claims.lease_id, claims.subject_pubkey, claims.scan_id, claims.hedera_tx_id, claims.exp,
-      claims.max_calls, JSON.stringify([{ id: 'missing-lockfile', severity: 'medium', message: 'Missing lockfile' }])],
+      claims.max_calls, claims.policy_hash,
+      JSON.stringify([{ id: 'missing-lockfile', severity: 'medium', message: 'Missing lockfile' }])],
   )
   return { claims, token: signLease(claims, service.privateKey) }
 }
@@ -62,6 +63,13 @@ test('enforces ToolLease subject, counter, and server expiry', async (t) => {
     assert.equal((await response.json()).finding.id, 'missing-lockfile')
   })
 
+  await t.test('keeps an active pre-migration lease usable during rollout', async () => {
+    const issued = await lease(true)
+    const response = await request(issued.token, issued.claims, 1)
+    assert.equal(response.status, 200)
+    assert.equal((await response.json()).finding.id, 'missing-lockfile')
+  })
+
   await t.test('denies a wrong subject key', async () => {
     const issued = await lease()
     const response = await request(issued.token, issued.claims, 1, attacker.privateKey, attackerPubkey)
@@ -76,6 +84,18 @@ test('enforces ToolLease subject, counter, and server expiry', async (t) => {
     assert.equal(first.status, 200)
     assert.equal(replay.status, 403)
     assert.equal((await replay.json()).error, 'REPLAY_DETECTED')
+  })
+
+  await t.test('denies a service-signed lease whose policy differs from stored state', async () => {
+    const issued = await lease()
+    const changedClaims = { ...issued.claims, policy_hash: `sha256:${'b'.repeat(64)}` }
+    const response = await request(signLease(changedClaims, service.privateKey), changedClaims, 1)
+    assert.equal(response.status, 401)
+    assert.equal((await response.json()).error, 'LEASE_REQUIRED')
+    const state = await database().query(
+      `SELECT used_calls, last_counter FROM tool_leases WHERE lease_id = $1`,
+      [issued.claims.lease_id])
+    assert.deepEqual(state.rows[0], { used_calls: 0, last_counter: 0 })
   })
 
   await t.test('atomically allows only one concurrent use of a counter', async () => {

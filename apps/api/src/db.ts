@@ -28,6 +28,8 @@ export async function initializeDatabase() {
     ALTER TABLE payment_quotes ADD COLUMN IF NOT EXISTS root_files jsonb;
     ALTER TABLE payment_quotes ADD COLUMN IF NOT EXISTS files_considered integer;
     ALTER TABLE payment_quotes ADD COLUMN IF NOT EXISTS pricing jsonb;
+    ALTER TABLE payment_quotes ADD COLUMN IF NOT EXISTS scope402_extension jsonb;
+    ALTER TABLE payment_quotes ADD COLUMN IF NOT EXISTS policy_hash text;
     CREATE TABLE IF NOT EXISTS payment_redemptions (
       transaction_id text PRIMARY KEY,
       quote_id uuid NOT NULL UNIQUE REFERENCES payment_quotes(quote_id),
@@ -60,8 +62,10 @@ export async function initializeDatabase() {
       used_calls integer NOT NULL DEFAULT 0 CHECK (used_calls >= 0),
       last_counter integer NOT NULL DEFAULT 0 CHECK (last_counter >= 0),
       revoked_at timestamptz,
+      policy_hash text,
       findings jsonb NOT NULL
     );
+    ALTER TABLE tool_leases ADD COLUMN IF NOT EXISTS policy_hash text;
   `)
 }
 

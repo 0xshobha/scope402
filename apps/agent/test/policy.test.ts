@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { createHash } from 'node:crypto'
 import { canonicalJson } from '../src/canonical.js'
-import { assertScope402Policy, selectPayment } from '../src/policy.js'
+import { assertScope402Policy, selectPayment, SCOPE402_EXTENSION_SCHEMA } from '../src/policy.js'
 
 const url = 'http://127.0.0.1:3000/v1/scans'
 const quoteUrl = `${url}?quote_id=123e4567-e89b-42d3-a456-426614174000`
@@ -60,7 +60,7 @@ test('requires the exact subject-bound capability policy advertised by the quote
     tools: ['finding_details'], maxCalls: 3, ttlSeconds: 300 }
   const extension = { ...required, extensions: { scope402: { info: { ...policy,
     policyHash: `sha256:${createHash('sha256').update(canonicalJson(policy)).digest('hex')}` },
-  schema: { type: 'object' } } } }
+  schema: SCOPE402_EXTENSION_SCHEMA } } }
   const expected = { subjectPubkey: 'subject-key', repository: '0xshobha/scope402',
     commitSha: 'a'.repeat(40), audience: 'http://127.0.0.1:3000/v1/tools' }
   assert.equal(assertScope402Policy(extension, expected).maxCalls, 3)
@@ -68,8 +68,26 @@ test('requires the exact subject-bound capability policy advertised by the quote
     { ...policy, subject: { scheme: 'p256', publicKey: 'attacker' } },
     { ...policy, maxCalls: 4 }, { ...policy, tools: ['other'] },
     { ...policy, resource: { ...policy.resource, revision: 'b'.repeat(40) } },
+    { ...policy, audience: 'https://evil.example/v1/tools' },
+    { ...policy, ttlSeconds: 301 },
+    { ...policy, resource: { ...policy.resource, id: 'another/repository' } },
   ]) {
     assert.throws(() => assertScope402Policy({ ...extension, extensions: { scope402: {
       ...extension.extensions.scope402, info } } }, expected), /capability policy/)
   }
+  assert.throws(() => assertScope402Policy({ ...extension, extensions: {} }, expected), /capability policy/)
+  assert.throws(() => assertScope402Policy({ ...extension, extensions: { scope402: {
+    ...extension.extensions.scope402, schema: { type: 'object' },
+  } } }, expected), /capability policy/)
+
+  const altered = { ...policy, maxCalls: 4 }
+  const alteredWithFreshHash = { ...altered,
+    policyHash: `sha256:${createHash('sha256').update(canonicalJson(altered)).digest('hex')}` }
+  assert.throws(() => assertScope402Policy({ ...extension, extensions: { scope402: {
+    ...extension.extensions.scope402, info: alteredWithFreshHash,
+  } } }, expected), /capability policy/)
+  assert.throws(() => assertScope402Policy({ ...extension, extensions: { scope402: {
+    ...extension.extensions.scope402,
+    info: { ...extension.extensions.scope402.info, unexpected: true },
+  } } }, expected), /capability policy/)
 })

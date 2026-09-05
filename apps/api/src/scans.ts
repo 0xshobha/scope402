@@ -138,8 +138,10 @@ scans.post('/', async (c) => {
       const transactionId = paymentTransactionId(payload)
       const recovered = await settledRedemption(transactionId, quoteId)
       const quote = await loadQuote(quoteId, request.repo_url, request.subject_pubkey, Boolean(recovered))
-      const extensions = quote.snapshot ? scope402Extension(request.subject_pubkey, quote.snapshot,
-        new URL('/v1/tools', process.env.AUDITLAB_URL ?? c.req.url).href) : undefined
+      if (!quote.scope402Extension) {
+        throw new PaymentError('QUOTE_EXPIRED', 'Quote predates persisted Scope402 policy; request a new quote')
+      }
+      const extensions = quote.scope402Extension
       assertQuotedPayment(payload, quote)
       assertScope402Echo(payload, extensions)
       const receipt = recovered ?? await settlePayment(quoteId, payload, quote.requirements)
@@ -147,7 +149,8 @@ scans.post('/', async (c) => {
       c.header('Cache-Control', 'no-store')
       const runScan = quote.snapshot ? async () => scanRepositorySnapshot(quote.snapshot!) : undefined
       return c.json(await fulfillPaidScan({ transactionId, quoteId, repoUrl: request.repo_url,
-        subjectPubkey: request.subject_pubkey, requirements: quote.requirements, receipt }, runScan))
+        subjectPubkey: request.subject_pubkey, requirements: quote.requirements, receipt,
+        policy: quote.scope402Extension.scope402.info }, runScan))
     }
     let merchant: ReturnType<typeof merchantConfig>
     let pricingPolicy: ReturnType<typeof pricingConfig>
@@ -185,7 +188,7 @@ scans.post('/', async (c) => {
       new URL('/v1/tools', process.env.AUDITLAB_URL ?? c.req.url).href)
     const draft = await paymentRequired(endpoint, config, support, description, extensions)
     const quote = await createQuote(request.repo_url, request.subject_pubkey, endpoint,
-      draft.accepts[0]!, snapshot, pricing)
+      draft.accepts[0]!, snapshot, pricing, extensions)
     const required = { ...draft, resource: { ...draft.resource, url: quote.resourceUrl } }
     c.header('PAYMENT-REQUIRED', encodePaymentRequiredHeader(required))
     c.header('Cache-Control', 'no-store')

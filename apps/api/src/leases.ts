@@ -4,6 +4,7 @@ import { canonicalJson } from './canonical.js'
 import type { PoolClient } from 'pg'
 import { database } from './db.js'
 import { LeaseError } from './lease-error.js'
+import { parseScope402PolicyInfo, type Scope402PolicyInfo } from './scope-extension.js'
 
 export type LeaseClaims = {
   lease_id: string
@@ -16,6 +17,7 @@ export type LeaseClaims = {
   offer_id: string
   hedera_tx_id: string
   scan_id: string
+  policy_hash?: string
 }
 
 export type Invocation = {
@@ -81,7 +83,8 @@ export function verifyLease(token: string, key: KeyObject): LeaseClaims {
   const value = claims as Partial<LeaseClaims>
   if (typeof value.lease_id !== 'string' || typeof value.subject_pubkey !== 'string' ||
       typeof value.exp !== 'number' || value.max_calls !== 3 || value.tool_ids?.[0] !== 'finding_details' ||
-      typeof value.scan_id !== 'string' || typeof value.hedera_tx_id !== 'string') {
+      typeof value.scan_id !== 'string' || typeof value.hedera_tx_id !== 'string' ||
+      (value.policy_hash !== undefined && !/^sha256:[0-9a-f]{64}$/.test(value.policy_hash))) {
     throw new LeaseError('LEASE_REQUIRED', 'Lease claims are invalid')
   }
   return value as LeaseClaims
@@ -129,14 +132,21 @@ export function verifyInvocation(token: string, subjectPubkey: string): Invocati
 }
 
 export async function prepareLease(subjectPubkey: string, scan: { scan_id: string; findings: unknown[] },
-  transactionId: string, offerId: string) {
+  transactionId: string, offerId: string, policy: Scope402PolicyInfo) {
+  const validatedPolicy = parseScope402PolicyInfo(policy)
+  if (validatedPolicy.subject.publicKey !== subjectPubkey) {
+    throw new Error('Purchased Scope402 subject does not match lease subject')
+  }
   const now = Math.floor(Date.now() / 1000)
+  const tools = validatedPolicy.tools
   const claims: LeaseClaims = {
-    lease_id: randomUUID(), subject_pubkey: subjectPubkey,
-    aud: new URL('/v1/tools', process.env.AUDITLAB_URL ?? 'http://127.0.0.1:3000').href,
-    catalogue_hash: createHash('sha256').update(canonicalJson(['finding_details'])).digest('hex'),
-    tool_ids: ['finding_details'], max_calls: 3, exp: now + 300, offer_id: offerId,
+    lease_id: randomUUID(), subject_pubkey: validatedPolicy.subject.publicKey,
+    aud: validatedPolicy.audience,
+    catalogue_hash: createHash('sha256').update(canonicalJson(tools)).digest('hex'),
+    tool_ids: tools, max_calls: validatedPolicy.maxCalls,
+    exp: now + validatedPolicy.ttlSeconds, offer_id: offerId,
     hedera_tx_id: transactionId, scan_id: scan.scan_id,
+    policy_hash: validatedPolicy.policyHash,
   }
   return { token: signLease(claims, await serviceKey()), claims }
 }
@@ -145,10 +155,11 @@ export async function persistLease(client: PoolClient,
   lease: Awaited<ReturnType<typeof prepareLease>>, findings: unknown[]) {
   await client.query(
     `INSERT INTO tool_leases
-       (lease_id, subject_pubkey, scan_id, hedera_tx_id, expires_at, max_calls, findings)
-     VALUES ($1, $2, $3, $4, to_timestamp($5), $6, $7)`,
+       (lease_id, subject_pubkey, scan_id, hedera_tx_id, expires_at, max_calls, policy_hash, findings)
+     VALUES ($1, $2, $3, $4, to_timestamp($5), $6, $7, $8)`,
     [lease.claims.lease_id, lease.claims.subject_pubkey, lease.claims.scan_id,
-      lease.claims.hedera_tx_id, lease.claims.exp, lease.claims.max_calls, JSON.stringify(findings)],
+      lease.claims.hedera_tx_id, lease.claims.exp, lease.claims.max_calls,
+      lease.claims.policy_hash, JSON.stringify(findings)],
   )
 }
 
@@ -157,19 +168,23 @@ export async function authorizeInvocation(claims: LeaseClaims, invocation: Invoc
     `UPDATE tool_leases SET used_calls = used_calls + 1, last_counter = $2
      WHERE lease_id = $1 AND subject_pubkey = $3 AND scan_id = $4 AND hedera_tx_id = $5
        AND revoked_at IS NULL AND expires_at > now() AND expires_at = to_timestamp($6)
+       AND policy_hash IS NOT DISTINCT FROM $8
        AND last_counter + 1 = $2 AND used_calls < max_calls
        AND findings @> $7::jsonb
      RETURNING findings`,
     [claims.lease_id, invocation.counter, claims.subject_pubkey, claims.scan_id,
-      claims.hedera_tx_id, claims.exp, JSON.stringify([{ id: findingId }])],
+      claims.hedera_tx_id, claims.exp, JSON.stringify([{ id: findingId }]), claims.policy_hash],
   )
   if (result.rowCount === 1) return result.rows[0].findings as unknown[]
   const state = await database().query(
-    `SELECT subject_pubkey, expires_at <= now() OR revoked_at IS NOT NULL AS expired,
+    `SELECT subject_pubkey, policy_hash, expires_at <= now() OR revoked_at IS NOT NULL AS expired,
             used_calls, max_calls, last_counter, findings
      FROM tool_leases WHERE lease_id = $1`, [claims.lease_id])
   if (state.rowCount !== 1 || state.rows[0].subject_pubkey !== claims.subject_pubkey) {
     throw new LeaseError('SUBJECT_KEY_MISMATCH', 'Lease subject does not match stored state')
+  }
+  if ((state.rows[0].policy_hash ?? undefined) !== claims.policy_hash) {
+    throw new LeaseError('LEASE_REQUIRED', 'Lease policy does not match stored state')
   }
   if (state.rows[0].expired || claims.exp <= Math.floor(Date.now() / 1000)) {
     throw new LeaseError('LEASE_EXPIRED', 'Lease has expired')

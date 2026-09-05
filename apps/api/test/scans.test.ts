@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict'
-import { generateKeyPairSync } from 'node:crypto'
+import { createHash, generateKeyPairSync } from 'node:crypto'
 import { test } from 'node:test'
 import { decodePaymentRequiredHeader, encodePaymentRequiredHeader } from '@x402/core/http'
 import { PaymentRequiredV2Schema } from '@x402/core/schemas'
 import { app } from '../src/app.js'
 import { clearRepositoryCache } from '../src/github.js'
+import { canonicalJson } from '../src/canonical.js'
 import { assertScope402Echo, scope402Extension } from '../src/scope-extension.js'
 import { assertPaymentAmount, meterScan, parseScanRequest, paymentRequired, pricingConfig,
   scanResourceUrl, settledPaymentDetails } from '../src/scans.js'
@@ -44,9 +45,27 @@ test('requires the paid payload to echo the exact Scope402 capability policy', (
     repo: '0xshobha/scope402', commit_sha: 'a'.repeat(40), root_files: ['package.json'],
   }, 'http://localhost:3000/v1/tools')
   assert.doesNotThrow(() => assertScope402Echo({ extensions }, extensions))
-  const changed = structuredClone(extensions)
-  ;(changed.scope402.info as { maxCalls: number }).maxCalls = 4
-  assert.throws(() => assertScope402Echo({ extensions: changed }, extensions), /does not echo/)
+  const mutations: Array<(changed: typeof extensions) => void> = [
+    (changed) => { changed.scope402.info.subject.publicKey = 'attacker' },
+    (changed) => { changed.scope402.info.audience = 'https://evil.example/v1/tools' },
+    (changed) => { changed.scope402.info.resource.id = 'another/repository' },
+    (changed) => { changed.scope402.info.resource.revision = 'b'.repeat(40) },
+    (changed) => { (changed.scope402.info.tools as string[]) = ['finding_details', 'delete_repository'] },
+    (changed) => { (changed.scope402.info as { maxCalls: number }).maxCalls = 4 },
+    (changed) => { (changed.scope402.info as { ttlSeconds: number }).ttlSeconds = 301 },
+    (changed) => { changed.scope402.info.policyHash = `sha256:${'0'.repeat(64)}` },
+  ]
+  for (const mutate of mutations) {
+    const changed = structuredClone(extensions)
+    mutate(changed)
+    assert.throws(() => assertScope402Echo({ extensions: changed }, extensions), /does not echo/)
+  }
+  const changedWithFreshHash = structuredClone(extensions)
+  ;(changedWithFreshHash.scope402.info as { maxCalls: number }).maxCalls = 4
+  const { policyHash: _, ...alteredPolicy } = changedWithFreshHash.scope402.info
+  changedWithFreshHash.scope402.info.policyHash = `sha256:${createHash('sha256')
+    .update(canonicalJson(alteredPolicy)).digest('hex')}`
+  assert.throws(() => assertScope402Echo({ extensions: changedWithFreshHash }, extensions), /does not echo/)
   assert.throws(() => assertScope402Echo({}, extensions), /does not echo/)
 })
 

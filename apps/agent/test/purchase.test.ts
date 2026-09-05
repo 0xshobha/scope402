@@ -5,6 +5,7 @@ import { encodePaymentRequiredHeader } from '@x402/core/http'
 import { assertPreparedScan, normalizeRepositoryUrl, prepareScanPurchase } from '../src/purchase.js'
 import { canonicalJson } from '../src/canonical.js'
 import { ephemeralSubject } from '../src/subject.js'
+import { SCOPE402_EXTENSION_SCHEMA } from '../src/policy.js'
 
 const baseUrl = new URL('https://auditlab.example')
 const quoteId = '123e4567-e89b-42d3-a456-426614174000'
@@ -32,7 +33,7 @@ function paymentRequired(subjectPubkey: string) {
   return { x402Version: 2 as const, resource: { url: paymentUrl }, accepts: [terms],
     extensions: { scope402: { info: { ...capability,
       policyHash: `sha256:${createHash('sha256').update(canonicalJson(capability)).digest('hex')}` },
-    schema: { type: 'object' } } } }
+    schema: SCOPE402_EXTENSION_SCHEMA } } }
 }
 
 test('normalizes only an exact public GitHub repository URL shape', () => {

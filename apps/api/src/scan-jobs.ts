@@ -3,6 +3,7 @@ import { database, transaction } from './db.js'
 import { scanRepository } from './github.js'
 import { persistLease, prepareLease } from './leases.js'
 import { settledPaymentDetails } from './payment-receipt.js'
+import type { Scope402PolicyInfo } from './scope-extension.js'
 
 export class ScanJobError extends Error {
   constructor(public readonly code: 'SCAN_IN_PROGRESS' | 'SCAN_RETRYABLE', message: string) {
@@ -56,13 +57,15 @@ export async function fulfillPaidScan(input: {
   subjectPubkey: string
   requirements: PaymentRequirements
   receipt: Receipt
+  policy: Scope402PolicyInfo
 }, runScan: (repoUrl: string) => Promise<Scan> = scanRepository) {
   await ensureJob(input.transactionId, input.quoteId)
   const claim = await claimJob(input.transactionId)
   if (claim.kind === 'complete') return claim.result
   try {
     const scan = await runScan(input.repoUrl)
-    const lease = await prepareLease(input.subjectPubkey, scan, input.transactionId, input.quoteId)
+    const lease = await prepareLease(input.subjectPubkey, scan, input.transactionId, input.quoteId,
+      input.policy)
     const result: CompletedScan = {
       ...scan,
       status: 'complete',

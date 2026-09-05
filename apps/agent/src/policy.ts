@@ -1,8 +1,31 @@
 import { PaymentRequiredV2Schema } from '@x402/core/schemas'
 import { createHash } from 'node:crypto'
+import { isDeepStrictEqual } from 'node:util'
 import { canonicalJson } from './canonical.js'
 
+export const SCOPE402_EXTENSION_SCHEMA = {
+  type: 'object', additionalProperties: false,
+  required: ['version', 'subject', 'audience', 'resource', 'tools', 'maxCalls', 'ttlSeconds', 'policyHash'],
+  properties: {
+    version: { const: 1 },
+    subject: { type: 'object', additionalProperties: false, required: ['scheme', 'publicKey'],
+      properties: { scheme: { const: 'p256' }, publicKey: { type: 'string' } } },
+    audience: { type: 'string', format: 'uri' },
+    resource: { type: 'object', additionalProperties: false, required: ['kind', 'id', 'revision'],
+      properties: { kind: { const: 'github-repository' }, id: { type: 'string' },
+        revision: { type: 'string', pattern: '^[0-9a-f]{40}$' } } },
+    tools: { type: 'array', minItems: 1, uniqueItems: true, items: { type: 'string' } },
+    maxCalls: { type: 'integer', minimum: 1 }, ttlSeconds: { type: 'integer', minimum: 1 },
+    policyHash: { type: 'string', pattern: '^sha256:[0-9a-f]{64}$' },
+  },
+} as const
+
 type ExpectedScope = { subjectPubkey: string; repository: string; commitSha: string; audience: string }
+
+function hasExactKeys(value: unknown, keys: string[]) {
+  return typeof value === 'object' && value !== null &&
+    isDeepStrictEqual(Object.keys(value).sort(), [...keys].sort())
+}
 
 export function assertScope402Policy(required: { extensions?: Record<string, unknown> | null }, expected: ExpectedScope) {
   const extension = required.extensions?.scope402 as Record<string, unknown> | undefined
@@ -14,7 +37,13 @@ export function assertScope402Policy(required: { extensions?: Record<string, unk
     tools: info.tools, maxCalls: info.maxCalls, ttlSeconds: info.ttlSeconds,
   }
   const hash = policy ? `sha256:${createHash('sha256').update(canonicalJson(policy)).digest('hex')}` : ''
-  if (!extension?.schema || info?.version !== 1 || subject?.scheme !== 'p256' ||
+  if (!hasExactKeys(required.extensions, ['scope402']) ||
+      !hasExactKeys(extension, ['info', 'schema']) ||
+      !hasExactKeys(info, ['version', 'subject', 'audience', 'resource', 'tools', 'maxCalls', 'ttlSeconds', 'policyHash']) ||
+      !hasExactKeys(subject, ['scheme', 'publicKey']) ||
+      !hasExactKeys(resource, ['kind', 'id', 'revision']) ||
+      !isDeepStrictEqual(extension?.schema, SCOPE402_EXTENSION_SCHEMA) ||
+      info?.version !== 1 || subject?.scheme !== 'p256' ||
       subject.publicKey !== expected.subjectPubkey || info?.audience !== expected.audience ||
       resource?.kind !== 'github-repository' || resource.id !== expected.repository ||
       resource.revision !== expected.commitSha || !Array.isArray(info?.tools) ||

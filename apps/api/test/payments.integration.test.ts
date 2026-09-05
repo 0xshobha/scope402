@@ -4,6 +4,7 @@ import type { PaymentRequirements } from '@x402/core/types'
 import { closeDatabase, database, initializeDatabase } from '../src/db.js'
 import { abandonVerification, beginRedemption, createQuote, loadQuote,
   markSettlement, markSettlementAttempted, type Pricing } from '../src/payments.js'
+import { scope402Extension, scope402PolicyHash, type Scope402Policy } from '../src/scope-extension.js'
 
 const requirements: PaymentRequirements = {
   scheme: 'exact', network: 'hedera:testnet', asset: '0.0.0', amount: '50500',
@@ -24,13 +25,37 @@ test('persists bound quotes and redemption state', async (t) => {
     await closeDatabase()
   })
   const quote = await createQuote('https://github.com/0xshobha/scope402', 'subject',
-    'http://127.0.0.1:3000/v1/scans', requirements, snapshot, pricing)
+    'http://127.0.0.1:3000/v1/scans', requirements, snapshot, pricing,
+    scope402Extension('subject', snapshot, 'http://127.0.0.1:3000/v1/tools'))
   const stored = await loadQuote(quote.quoteId, 'https://github.com/0xshobha/scope402', 'subject')
   assert.equal(stored.resourceUrl, quote.resourceUrl)
   assert.deepEqual(stored.requirements, requirements)
   assert.deepEqual(stored.snapshot, snapshot)
   assert.deepEqual(stored.pricing, pricing)
+  assert.equal(stored.policyHash, stored.scope402Extension?.scope402.info.policyHash)
+  assert.equal(stored.scope402Extension?.scope402.info.subject.publicKey, 'subject')
+  assert.equal(stored.scope402Extension?.scope402.info.resource.revision, snapshot.commit_sha)
   await assert.rejects(loadQuote(quote.quoteId, 'https://github.com/another/repo', 'subject'), /bound/)
+
+  await database().query(`UPDATE payment_quotes SET policy_hash = $2 WHERE quote_id = $1`,
+    [quote.quoteId, `sha256:${'0'.repeat(64)}`])
+  await assert.rejects(loadQuote(quote.quoteId, 'https://github.com/0xshobha/scope402', 'subject'),
+    /policy does not match/)
+  await database().query(`UPDATE payment_quotes SET policy_hash = $2 WHERE quote_id = $1`,
+    [quote.quoteId, stored.policyHash])
+
+  const changedAudience = structuredClone(stored.scope402Extension!)
+  changedAudience.scope402.info.audience = 'https://evil.example/v1/tools'
+  const { policyHash: _, ...changedPolicy } = changedAudience.scope402.info
+  changedAudience.scope402.info.policyHash = scope402PolicyHash(changedPolicy as Scope402Policy)
+  await database().query(
+    `UPDATE payment_quotes SET scope402_extension = $2, policy_hash = $3 WHERE quote_id = $1`,
+    [quote.quoteId, JSON.stringify(changedAudience), changedAudience.scope402.info.policyHash])
+  await assert.rejects(loadQuote(quote.quoteId, 'https://github.com/0xshobha/scope402', 'subject'),
+    /policy does not match/)
+  await database().query(
+    `UPDATE payment_quotes SET scope402_extension = $2, policy_hash = $3 WHERE quote_id = $1`,
+    [quote.quoteId, JSON.stringify(stored.scope402Extension), stored.policyHash])
 
   const tx = '0.0.7162784@1700000000.123456789'
   await beginRedemption(tx, quote.quoteId)
