@@ -5,7 +5,7 @@ import { PaymentRequiredV2Schema } from '@x402/core/schemas'
 import { paymentConfig } from './scans.js'
 
 try {
-  const config = paymentConfig()
+  const config = paymentConfig('1')
   const { publicKey } = generateKeyPairSync('ec', { namedCurve: 'prime256v1' })
   const url = new URL('/v1/scans', process.env.AUDITLAB_URL ?? 'http://127.0.0.1:3000')
   const response = await fetch(url, {
@@ -21,16 +21,24 @@ try {
   const header = response.headers.get('PAYMENT-REQUIRED')
   assert.ok(header, 'Missing PAYMENT-REQUIRED')
   const required = PaymentRequiredV2Schema.parse(decodePaymentRequiredHeader(header))
-  assert.deepEqual(await response.json(), required)
+  const body = await response.json() as typeof required & {
+    quote: { repository: string; commit_sha: string; pricing: {
+      files_considered: number; total_tinybars: string
+    } }
+  }
+  const { quote, ...bodyRequired } = body
+  assert.deepEqual(bodyRequired, required)
   assert.equal(required.accepts.length, 1)
   const terms = required.accepts[0]!
   assert.equal(terms.scheme, 'exact')
   assert.equal(terms.network, 'hedera:testnet')
   assert.equal(terms.asset, '0.0.0')
-  assert.equal(terms.amount, config.amount)
+  assert.equal(terms.amount, quote.pricing.total_tinybars)
   assert.equal(terms.payTo, config.payTo)
   assert.equal(typeof terms.extra?.feePayer, 'string')
   assert.ok(terms.extra?.feePayer)
+  assert.match(quote.commit_sha, /^[0-9a-f]{40}$/)
+  assert.equal(quote.pricing.files_considered >= 0, true)
   console.log('HTTP 402: valid x402 v2 PAYMENT-REQUIRED')
   console.log(`Merchant: ${terms.payTo}`)
   console.log(`Price: ${terms.amount} tinybars`)

@@ -20,6 +20,11 @@ export async function initializeDatabase() {
       expires_at timestamptz NOT NULL,
       created_at timestamptz NOT NULL DEFAULT now()
     );
+    ALTER TABLE payment_quotes ADD COLUMN IF NOT EXISTS repository_name text;
+    ALTER TABLE payment_quotes ADD COLUMN IF NOT EXISTS commit_sha text;
+    ALTER TABLE payment_quotes ADD COLUMN IF NOT EXISTS root_files jsonb;
+    ALTER TABLE payment_quotes ADD COLUMN IF NOT EXISTS files_considered integer;
+    ALTER TABLE payment_quotes ADD COLUMN IF NOT EXISTS pricing jsonb;
     CREATE TABLE IF NOT EXISTS payment_redemptions (
       transaction_id text PRIMARY KEY,
       quote_id uuid NOT NULL UNIQUE REFERENCES payment_quotes(quote_id),

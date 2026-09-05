@@ -3,15 +3,22 @@ import { generateKeyPairSync, randomUUID } from 'node:crypto'
 import { test } from 'node:test'
 import type { PaymentRequirements, SettleResponse } from '@x402/core/types'
 import { closeDatabase, database, initializeDatabase } from '../src/db.js'
-import { createQuote, loadQuote } from '../src/payments.js'
+import { createQuote, loadQuote, type Pricing } from '../src/payments.js'
 import { fulfillPaidScan, ScanJobError } from '../src/scan-jobs.js'
 
 const service = generateKeyPairSync('ec', { namedCurve: 'prime256v1' })
 const subject = generateKeyPairSync('ec', { namedCurve: 'prime256v1' })
 const subjectPubkey = subject.publicKey.export({ format: 'der', type: 'spki' }).toString('base64url')
 const requirements: PaymentRequirements = {
-  scheme: 'exact', network: 'hedera:testnet', asset: '0.0.0', amount: '100000',
+  scheme: 'exact', network: 'hedera:testnet', asset: '0.0.0', amount: '50500',
   payTo: '0.0.8258555', maxTimeoutSeconds: 120, extra: { feePayer: '0.0.7162784' },
+}
+const snapshot = {
+  repo: '0xshobha/scope402', commit_sha: 'a'.repeat(40), root_files: ['package.json'],
+}
+const pricing: Pricing = {
+  base_tinybars: '50000', per_file_tinybars: '500', file_cap: 100,
+  files_considered: 1, files_charged: 1, total_tinybars: '50500',
 }
 
 function transactionId() {
@@ -19,7 +26,8 @@ function transactionId() {
 }
 
 async function purchase(repoUrl = 'https://github.com/0xshobha/scope402') {
-  const quote = await createQuote(repoUrl, subjectPubkey, 'http://127.0.0.1:3000/v1/scans', requirements)
+  const quote = await createQuote(repoUrl, subjectPubkey,
+    'http://127.0.0.1:3000/v1/scans', requirements, snapshot, pricing)
   const transaction = transactionId()
   const receipt: SettleResponse = {
     success: true, network: 'hedera:testnet', transaction, payer: '0.0.8258066',
@@ -132,7 +140,7 @@ test('recovers durable paid scan fulfillment', async (t) => {
       [input.transactionId, input.quoteId],
     )
     const other = await createQuote(input.repoUrl, input.subjectPubkey,
-      'http://127.0.0.1:3000/v1/scans', requirements)
+      'http://127.0.0.1:3000/v1/scans', requirements, snapshot, pricing)
     await assert.rejects(fulfillPaidScan({ ...input, quoteId: other.quoteId }, successfulScan), /another scan job/)
   })
 

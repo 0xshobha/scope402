@@ -19,6 +19,12 @@ export type Finding = {
   message: string
 }
 
+export type RepositorySnapshot = {
+  repo: string
+  commit_sha: string
+  root_files: string[]
+}
+
 export function repositoryCoordinates(repoUrl: string) {
   const parts = new URL(repoUrl).pathname.replace(/\/$/, '').split('/').slice(1)
   if (parts.length !== 2) throw new Error('Invalid GitHub repository URL')
@@ -49,7 +55,7 @@ async function github<T>(path: string): Promise<T> {
   return response.json() as Promise<T>
 }
 
-export async function scanRepository(repoUrl: string) {
+export async function prepareRepository(repoUrl: string): Promise<RepositorySnapshot> {
   const { owner, repo } = repositoryCoordinates(repoUrl)
   const base = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`
   const metadata = await github<Repository>(base)
@@ -65,10 +71,14 @@ export async function scanRepository(repoUrl: string) {
   if (!Array.isArray(contents)) throw new Error('GitHub repository root is not a directory')
   const files = contents.filter((entry) => entry.type === 'file' && typeof entry.name === 'string')
     .map((entry) => entry.name as string)
-  return {
-    scan_id: randomUUID(),
-    repo: metadata.full_name,
-    commit_sha: sha,
-    findings: lockfileFindings(files),
-  }
+  return { repo: metadata.full_name, commit_sha: sha, root_files: files.sort() }
+}
+
+export function scanRepositorySnapshot(snapshot: RepositorySnapshot) {
+  return { scan_id: randomUUID(), repo: snapshot.repo, commit_sha: snapshot.commit_sha,
+    findings: lockfileFindings(snapshot.root_files) }
+}
+
+export async function scanRepository(repoUrl: string) {
+  return scanRepositorySnapshot(await prepareRepository(repoUrl))
 }

@@ -6,9 +6,10 @@ import { PaymentPayloadV2Schema } from '@x402/core/schemas'
 import type { PaymentPayload, PaymentRequired, PaymentRequirements } from '@x402/core/types'
 import { ExactHederaScheme } from '@x402/hedera/exact/server'
 import { getHederaSupport } from './blocky.js'
+import { prepareRepository, scanRepositorySnapshot } from './github.js'
 import { PaymentError } from './payment-error.js'
 import { settledPaymentDetails } from './payment-receipt.js'
-import { assertQuotedPayment, createQuote, loadQuote, settledRedemption } from './payments.js'
+import { assertQuotedPayment, createQuote, loadQuote, settledRedemption, type Pricing } from './payments.js'
 import { fulfillPaidScan, ScanJobError } from './scan-jobs.js'
 import { paymentTransactionId, settlePayment } from './settlement.js'
 
@@ -39,22 +40,53 @@ export function parseScanRequest(value: unknown): ScanRequest {
   return { repo_url, subject_pubkey }
 }
 
-export function paymentConfig() {
+export function paymentConfig(amount: string) {
   const payTo = process.env.HEDERA_MERCHANT_ACCOUNT_ID
-  const amount = process.env.SCAN_PRICE_TINYBARS ?? '100000'
   if (!payTo || !/^\d+\.\d+\.[1-9]\d*$/.test(payTo)) {
     throw new Error('Set HEDERA_MERCHANT_ACCOUNT_ID to the merchant account ID')
   }
   if (!/^[1-9]\d*$/.test(amount) || BigInt(amount) > 100_000_000n) {
-    throw new Error('SCAN_PRICE_TINYBARS must be between 1 and 100000000 (1 HBAR)')
+    throw new Error('Metered scan amount must be between 1 and 100000000 tinybars (1 HBAR)')
   }
   return { payTo, amount }
 }
 
+function positiveInteger(name: string, fallback: string, maximum: bigint) {
+  const value = process.env[name] ?? fallback
+  if (!/^[1-9]\d*$/.test(value) || BigInt(value) > maximum) {
+    throw new Error(`${name} must be an integer between 1 and ${maximum}`)
+  }
+  return BigInt(value)
+}
+
+export function pricingConfig() {
+  const base = positiveInteger('SCAN_BASE_PRICE_TINYBARS', '50000', 100_000_000n)
+  const perFile = positiveInteger('SCAN_PER_FILE_TINYBARS', '500', 100_000_000n)
+  const cap = positiveInteger('SCAN_FILE_CAP', '100', 1_000n)
+  if (base + perFile * cap > 100_000_000n) {
+    throw new Error('Maximum metered scan price must not exceed 1 HBAR')
+  }
+  return { base, perFile, cap: Number(cap) }
+}
+
+export function meterScan(filesConsidered: number,
+  config: ReturnType<typeof pricingConfig> = pricingConfig()): Pricing {
+  if (!Number.isSafeInteger(filesConsidered) || filesConsidered < 0) {
+    throw new Error('filesConsidered must be a non-negative integer')
+  }
+  const filesCharged = Math.min(filesConsidered, config.cap)
+  return {
+    base_tinybars: String(config.base), per_file_tinybars: String(config.perFile),
+    file_cap: config.cap, files_considered: filesConsidered, files_charged: filesCharged,
+    total_tinybars: String(config.base + config.perFile * BigInt(filesCharged)),
+  }
+}
+
 export async function paymentRequired(
   url: string,
-  config: ReturnType<typeof paymentConfig>,
+  config: { payTo: string; amount: string },
   support: Awaited<ReturnType<typeof getHederaSupport>>,
+  description = 'AuditLab repository scan',
 ): Promise<PaymentRequired> {
   const requirement = await new ExactHederaScheme().enhancePaymentRequirements({
     scheme: support.scheme, network: support.network, asset: '0.0.0',
@@ -63,7 +95,7 @@ export async function paymentRequired(
   return {
     x402Version: 2,
     error: 'PAYMENT-SIGNATURE header is required',
-    resource: { url, description: 'AuditLab repository scan', mimeType: 'application/json' },
+    resource: { url, description, mimeType: 'application/json' },
     accepts: [requirement],
   }
 }
@@ -102,23 +134,38 @@ scans.post('/', async (c) => {
       const receipt = recovered ?? await settlePayment(quoteId, payload, quote.requirements)
       c.header('PAYMENT-RESPONSE', encodePaymentResponseHeader(receipt))
       c.header('Cache-Control', 'no-store')
+      const runScan = quote.snapshot ? async () => scanRepositorySnapshot(quote.snapshot!) : undefined
       return c.json(await fulfillPaidScan({ transactionId, quoteId, repoUrl: request.repo_url,
-        subjectPubkey: request.subject_pubkey, requirements: quote.requirements, receipt }))
+        subjectPubkey: request.subject_pubkey, requirements: quote.requirements, receipt }, runScan))
     }
     let config: ReturnType<typeof paymentConfig>
+    let pricingPolicy: ReturnType<typeof pricingConfig>
+    let snapshot: Awaited<ReturnType<typeof prepareRepository>>
+    let pricing: Pricing
     try {
-      config = paymentConfig()
+      config = paymentConfig('1')
+      pricingPolicy = pricingConfig()
     } catch (error) {
       return c.json({ error: 'PAYMENT_NOT_CONFIGURED', message: (error as Error).message }, 503)
     }
+    try {
+      snapshot = await prepareRepository(request.repo_url)
+      pricing = meterScan(snapshot.root_files.length, pricingPolicy)
+      config = { ...config, amount: pricing.total_tinybars }
+    } catch (error) {
+      return c.json({ error: 'QUOTE_UNAVAILABLE', message: (error as Error).message }, 503)
+    }
     const support = await getHederaSupport()
     const endpoint = scanResourceUrl(c.req.url)
-    const draft = await paymentRequired(endpoint, config, support)
-    const quote = await createQuote(request.repo_url, request.subject_pubkey, endpoint, draft.accepts[0]!)
+    const description = `AuditLab scan of ${snapshot.repo}@${snapshot.commit_sha} (${pricing.files_considered} root files)`
+    const draft = await paymentRequired(endpoint, config, support, description)
+    const quote = await createQuote(request.repo_url, request.subject_pubkey, endpoint,
+      draft.accepts[0]!, snapshot, pricing)
     const required = { ...draft, resource: { ...draft.resource, url: quote.resourceUrl } }
     c.header('PAYMENT-REQUIRED', encodePaymentRequiredHeader(required))
     c.header('Cache-Control', 'no-store')
-    return c.json(required, 402)
+    return c.json({ ...required, quote: { repository: snapshot.repo,
+      commit_sha: snapshot.commit_sha, pricing } }, 402)
   } catch (error) {
     if (error instanceof ScanJobError) {
       return c.json({ error: error.code, message: error.message }, error.code === 'SCAN_IN_PROGRESS' ? 409 : 503)

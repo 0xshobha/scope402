@@ -3,11 +3,18 @@ import { test } from 'node:test'
 import type { PaymentRequirements } from '@x402/core/types'
 import { closeDatabase, database, initializeDatabase } from '../src/db.js'
 import { abandonVerification, beginRedemption, createQuote, loadQuote,
-  markSettlement, markSettlementAttempted } from '../src/payments.js'
+  markSettlement, markSettlementAttempted, type Pricing } from '../src/payments.js'
 
 const requirements: PaymentRequirements = {
-  scheme: 'exact', network: 'hedera:testnet', asset: '0.0.0', amount: '100000',
+  scheme: 'exact', network: 'hedera:testnet', asset: '0.0.0', amount: '50500',
   payTo: '0.0.8258555', maxTimeoutSeconds: 120, extra: { feePayer: '0.0.7162784' },
+}
+const snapshot = {
+  repo: '0xshobha/scope402', commit_sha: 'a'.repeat(40), root_files: ['package.json'],
+}
+const pricing: Pricing = {
+  base_tinybars: '50000', per_file_tinybars: '500', file_cap: 100,
+  files_considered: 1, files_charged: 1, total_tinybars: '50500',
 }
 
 test('persists bound quotes and redemption state', async (t) => {
@@ -17,10 +24,12 @@ test('persists bound quotes and redemption state', async (t) => {
     await closeDatabase()
   })
   const quote = await createQuote('https://github.com/0xshobha/scope402', 'subject',
-    'http://127.0.0.1:3000/v1/scans', requirements)
+    'http://127.0.0.1:3000/v1/scans', requirements, snapshot, pricing)
   const stored = await loadQuote(quote.quoteId, 'https://github.com/0xshobha/scope402', 'subject')
   assert.equal(stored.resourceUrl, quote.resourceUrl)
   assert.deepEqual(stored.requirements, requirements)
+  assert.deepEqual(stored.snapshot, snapshot)
+  assert.deepEqual(stored.pricing, pricing)
   await assert.rejects(loadQuote(quote.quoteId, 'https://github.com/another/repo', 'subject'), /bound/)
 
   const tx = '0.0.7162784@1700000000.123456789'

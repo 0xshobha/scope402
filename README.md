@@ -79,7 +79,9 @@ API environment:
 ```text
 DATABASE_URL=
 HEDERA_MERCHANT_ACCOUNT_ID=
-SCAN_PRICE_TINYBARS=100000
+SCAN_BASE_PRICE_TINYBARS=50000
+SCAN_PER_FILE_TINYBARS=500
+SCAN_FILE_CAP=100
 AUDITLAB_URL=http://127.0.0.1:3000
 TOOL_LEASE_PRIVATE_KEY_PATH=/absolute/path/to/p256-private-key.pem
 GITHUB_TOKEN=
@@ -123,7 +125,7 @@ corepack pnpm build
 - Hedera **testnet**, not mainnet
 - public GitHub repositories only
 - one deterministic repository check and one follow-up tool
-- fixed bootstrap price; workload metering is not implemented yet
+- quotes bind an exact GitHub commit and meter bounded root-file workload
 - API is public; the payer agent remains local so its keys remain outside the service
 - completed paid retries return the original scan and ToolLease instead of granting fresh authority
 - no HCS anchoring, Agent Kit plugin, browser UI, or additional sponsor integration yet

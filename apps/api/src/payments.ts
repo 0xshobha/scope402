@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { isDeepStrictEqual } from 'node:util'
 import { PaymentRequirementsV2Schema } from '@x402/core/schemas'
 import type { PaymentRequirements } from '@x402/core/types'
+import type { RepositorySnapshot } from './github.js'
 import { database, transaction } from './db.js'
 import { PaymentError } from './payment-error.js'
 
@@ -12,15 +13,23 @@ function assertQuoteId(quoteId: string) {
 }
 
 export async function createQuote(repoUrl: string, subjectPubkey: string,
-  endpoint: string, requirements: PaymentRequirements) {
+  endpoint: string, requirements: PaymentRequirements, snapshot: RepositorySnapshot,
+  pricing: Pricing) {
+  if (pricing.files_considered !== snapshot.root_files.length ||
+      pricing.total_tinybars !== requirements.amount) {
+    throw new PaymentError('PAYMENT_STATE_ERROR', 'Quote snapshot, pricing, and payment amount disagree')
+  }
   const quoteId = randomUUID()
   const resourceUrl = new URL(endpoint)
   resourceUrl.searchParams.set('quote_id', quoteId)
   await database().query(
     `INSERT INTO payment_quotes
-       (quote_id, repo_url, subject_pubkey, resource_url, requirements, expires_at)
-     VALUES ($1, $2, $3, $4, $5, now() + interval '5 minutes')`,
-    [quoteId, repoUrl, subjectPubkey, resourceUrl.href, JSON.stringify(requirements)],
+       (quote_id, repo_url, subject_pubkey, resource_url, requirements, expires_at,
+        repository_name, commit_sha, root_files, files_considered, pricing)
+     VALUES ($1, $2, $3, $4, $5, now() + interval '5 minutes', $6, $7, $8, $9, $10)`,
+    [quoteId, repoUrl, subjectPubkey, resourceUrl.href, JSON.stringify(requirements),
+      snapshot.repo, snapshot.commit_sha, JSON.stringify(snapshot.root_files),
+      snapshot.root_files.length, JSON.stringify(pricing)],
   )
   return { quoteId, resourceUrl: resourceUrl.href }
 }
@@ -29,16 +38,60 @@ export async function loadQuote(quoteId: string, repoUrl: string, subjectPubkey:
   allowExpired = false) {
   assertQuoteId(quoteId)
   const result = await database().query(
-    `SELECT resource_url, requirements FROM payment_quotes
+    `SELECT resource_url, requirements, repository_name, commit_sha, root_files,
+            files_considered, pricing
+     FROM payment_quotes
      WHERE quote_id = $1 AND repo_url = $2 AND subject_pubkey = $3
        AND ($4::boolean OR expires_at > now())`,
     [quoteId, repoUrl, subjectPubkey, allowExpired],
   )
   if (result.rowCount !== 1) throw new PaymentError('QUOTE_EXPIRED', 'Quote is missing, expired, or bound to another request')
-  return {
-    resourceUrl: String(result.rows[0].resource_url),
-    requirements: PaymentRequirementsV2Schema.parse(result.rows[0].requirements) as PaymentRequirements,
+  const row = result.rows[0]
+  const legacyQuote = row.repository_name === null && row.commit_sha === null &&
+    row.root_files === null && row.files_considered === null && row.pricing === null
+  const rootFilesValid = Array.isArray(row.root_files) &&
+    row.root_files.every((name: unknown) => typeof name === 'string')
+  const snapshot = typeof row.repository_name === 'string' &&
+    /^[0-9a-f]{40}$/.test(String(row.commit_sha)) && rootFilesValid &&
+    row.files_considered === row.root_files.length ? {
+      repo: row.repository_name as string,
+      commit_sha: row.commit_sha as string,
+      root_files: row.root_files as string[],
+    } : undefined
+  const pricing = parsePricing(row.pricing, row.files_considered)
+  if (!legacyQuote && (!snapshot || !pricing || pricing.total_tinybars !== row.requirements.amount)) {
+    throw new PaymentError('PAYMENT_STATE_ERROR', 'Stored quote snapshot or pricing is invalid')
   }
+  return {
+    resourceUrl: String(row.resource_url),
+    requirements: PaymentRequirementsV2Schema.parse(row.requirements) as PaymentRequirements,
+    snapshot,
+    pricing,
+  }
+}
+
+export type Pricing = {
+  base_tinybars: string
+  per_file_tinybars: string
+  file_cap: number
+  files_considered: number
+  files_charged: number
+  total_tinybars: string
+}
+
+function parsePricing(value: unknown, filesConsidered: unknown): Pricing | undefined {
+  if (typeof value !== 'object' || value === null) return undefined
+  const pricing = value as Record<string, unknown>
+  if (typeof pricing.base_tinybars !== 'string' || !/^[1-9]\d*$/.test(pricing.base_tinybars) ||
+      typeof pricing.per_file_tinybars !== 'string' || !/^[1-9]\d*$/.test(pricing.per_file_tinybars) ||
+      !Number.isSafeInteger(pricing.file_cap) || Number(pricing.file_cap) < 1 ||
+      !Number.isSafeInteger(pricing.files_considered) || pricing.files_considered !== filesConsidered ||
+      !Number.isSafeInteger(pricing.files_charged) || Number(pricing.files_charged) < 0 ||
+      Number(pricing.files_charged) > Number(pricing.file_cap) ||
+      typeof pricing.total_tinybars !== 'string' || !/^[1-9]\d*$/.test(pricing.total_tinybars)) {
+    return undefined
+  }
+  return pricing as Pricing
 }
 
 export async function settledRedemption(transactionId: string, quoteId: string) {

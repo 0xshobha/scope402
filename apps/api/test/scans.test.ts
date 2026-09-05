@@ -4,7 +4,8 @@ import { test } from 'node:test'
 import { decodePaymentRequiredHeader, encodePaymentRequiredHeader } from '@x402/core/http'
 import { PaymentRequiredV2Schema } from '@x402/core/schemas'
 import { app } from '../src/app.js'
-import { parseScanRequest, paymentConfig, paymentRequired, scanResourceUrl, settledPaymentDetails } from '../src/scans.js'
+import { meterScan, parseScanRequest, paymentConfig, paymentRequired, pricingConfig,
+  scanResourceUrl, settledPaymentDetails } from '../src/scans.js'
 
 const { publicKey } = generateKeyPairSync('ec', { namedCurve: 'prime256v1' })
 const request = {
@@ -64,20 +65,48 @@ test('refuses to advertise payment without merchant configuration', async (t) =>
   assert.equal(response.headers.has('PAYMENT-REQUIRED'), false)
 })
 
-test('rejects invalid tinybar prices', (t) => {
+test('rejects invalid metered tinybar amounts', (t) => {
   const merchant = process.env.HEDERA_MERCHANT_ACCOUNT_ID
-  const price = process.env.SCAN_PRICE_TINYBARS
   t.after(() => {
     if (merchant === undefined) delete process.env.HEDERA_MERCHANT_ACCOUNT_ID
     else process.env.HEDERA_MERCHANT_ACCOUNT_ID = merchant
-    if (price === undefined) delete process.env.SCAN_PRICE_TINYBARS
-    else process.env.SCAN_PRICE_TINYBARS = price
   })
   process.env.HEDERA_MERCHANT_ACCOUNT_ID = '0.0.12345'
   for (const amount of ['0', '-1', '0.001', '1e5', '100000001', 'abc']) {
-    process.env.SCAN_PRICE_TINYBARS = amount
-    assert.throws(paymentConfig, /SCAN_PRICE_TINYBARS/)
+    assert.throws(() => paymentConfig(amount), /Metered scan amount/)
   }
+})
+
+test('meters bounded repository workload deterministically', () => {
+  const config = { base: 50_000n, perFile: 500n, cap: 100 }
+  assert.equal(meterScan(0, config).total_tinybars, '50000')
+  assert.equal(meterScan(1, config).total_tinybars, '50500')
+  assert.equal(meterScan(20, config).total_tinybars, '60000')
+  assert.deepEqual(meterScan(101, config), {
+    base_tinybars: '50000', per_file_tinybars: '500', file_cap: 100,
+    files_considered: 101, files_charged: 100, total_tinybars: '100000',
+  })
+  assert.throws(() => meterScan(-1, config), /non-negative integer/)
+})
+
+test('validates metering policy configuration', (t) => {
+  const names = ['SCAN_BASE_PRICE_TINYBARS', 'SCAN_PER_FILE_TINYBARS', 'SCAN_FILE_CAP'] as const
+  const previous = Object.fromEntries(names.map((name) => [name, process.env[name]]))
+  t.after(() => {
+    for (const name of names) {
+      if (previous[name] === undefined) delete process.env[name]
+      else process.env[name] = previous[name]
+    }
+  })
+  process.env.SCAN_BASE_PRICE_TINYBARS = '50000'
+  process.env.SCAN_PER_FILE_TINYBARS = '500'
+  process.env.SCAN_FILE_CAP = '100'
+  assert.deepEqual(pricingConfig(), { base: 50_000n, perFile: 500n, cap: 100 })
+  process.env.SCAN_FILE_CAP = '1001'
+  assert.throws(pricingConfig, /SCAN_FILE_CAP/)
+  process.env.SCAN_FILE_CAP = '100'
+  process.env.SCAN_PER_FILE_TINYBARS = '1000000'
+  assert.throws(pricingConfig, /must not exceed 1 HBAR/)
 })
 
 test('reports settled quote terms instead of current merchant configuration', () => {
