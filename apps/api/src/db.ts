@@ -5,7 +5,10 @@ let pool: Pool | undefined
 export function database() {
   const connectionString = process.env.DATABASE_URL
   if (!connectionString) throw new Error('Set DATABASE_URL for durable payment state')
-  pool ??= new Pool({ connectionString, max: 10, connectionTimeoutMillis: 5_000 })
+  if (!pool) {
+    pool = new Pool({ connectionString, max: 10, connectionTimeoutMillis: 5_000 })
+    pool.on('error', (error) => console.error(`Idle database connection failed: ${error.message}`))
+  }
   return pool
 }
 
