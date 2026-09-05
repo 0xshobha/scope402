@@ -13,5 +13,8 @@ test('publishes the AuditLab paid resource and leased tool', async () => {
     { method: 'POST', path: '/v1/scans' })
   assert.deepEqual(auditLabDiscovery.resources.tessera_plot,
     { method: 'POST', path: '/v1/plots' })
+  assert.deepEqual(auditLabDiscovery.resources.tessera_canvas,
+    { method: 'GET', path: '/v1/canvas' })
   assert.equal(auditLabDiscovery.authorization.tools[0].id, 'finding_details')
+  assert.equal(auditLabDiscovery.authorization.tools[1].id, 'place_pixel')
 })

@@ -6,9 +6,13 @@ export const auditLabDiscovery = {
   resources: {
     repository_scan: { method: 'POST', path: '/v1/scans' },
     tessera_plot: { method: 'POST', path: '/v1/plots' },
+    tessera_canvas: { method: 'GET', path: '/v1/canvas' },
   },
   authorization: {
     scheme: 'scope402-tool-lease',
-    tools: [{ id: 'finding_details', method: 'POST', path: '/v1/tools/finding_details' }],
+    tools: [
+      { id: 'finding_details', method: 'POST', path: '/v1/tools/finding_details' },
+      { id: 'place_pixel', method: 'POST', path: '/v1/tools/place_pixel' },
+    ],
   },
 } as const

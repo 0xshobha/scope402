@@ -43,6 +43,9 @@ export async function authorizeAndCommitInTransaction<Args, Authorized, Result>(
   if (state.policyHash !== claims.policy_hash) {
     throw new LeaseError('LEASE_REQUIRED', 'Lease policy does not match stored state')
   }
+  if (state.hederaTransactionId !== claims.hedera_tx_id) {
+    throw new LeaseError('LEASE_REQUIRED', 'Lease payment transaction does not match stored state')
+  }
   const legacyUnscoped = state.formatVersion === undefined
   if (legacyUnscoped && (claims.resource !== undefined || !options.allowLegacyUnscopedState)) {
     throw new LeaseError('LEASE_REQUIRED', 'Lease has no persisted resource policy')

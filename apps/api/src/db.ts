@@ -114,6 +114,18 @@ export async function initializeDatabase() {
     ALTER TABLE tool_leases ALTER COLUMN findings SET DEFAULT '[]'::jsonb;
     ALTER TABLE tool_leases ADD COLUMN IF NOT EXISTS payment_quote_id uuid REFERENCES payment_quotes(quote_id);
     ALTER TABLE tool_leases ADD COLUMN IF NOT EXISTS merchant_id text;
+    CREATE TABLE IF NOT EXISTS tessera_pixels (
+      canvas_id text NOT NULL CHECK (canvas_id = 'main'),
+      x integer NOT NULL CHECK (x >= 0 AND x < 32),
+      y integer NOT NULL CHECK (y >= 0 AND y < 32),
+      color text NOT NULL CHECK (color IN (
+        '#0B0B0C', '#F5F2EA', '#FFFFFF', '#FFB020',
+        '#7C4DFF', '#00D3F2', '#C6F432', '#FF3B30'
+      )),
+      lease_id uuid NOT NULL REFERENCES tool_leases(lease_id),
+      updated_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+      PRIMARY KEY (canvas_id, x, y)
+    );
   `)
 }
 

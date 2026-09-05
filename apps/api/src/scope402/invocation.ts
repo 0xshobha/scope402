@@ -1,7 +1,7 @@
 import { createHash, createPublicKey, sign, verify, type KeyObject } from 'node:crypto'
 import { canonicalJson } from '../canonical.js'
 import { LeaseError } from '../lease-error.js'
-import { assertP256Key, encodeJwsPart, parseCompactJws } from './lease.js'
+import { assertP256Key, encodeJwsPart, parseCompactJws, type BaseLeaseClaims } from './lease.js'
 
 export type Scope402Invocation = {
   lease_id: string
@@ -60,4 +60,32 @@ export function verifyInvocation(token: string, subjectPubkey: string): Scope402
     throw new LeaseError('LEASE_REQUIRED', 'Invocation claims are invalid')
   }
   return value as Scope402Invocation
+}
+
+export function verifyBoundInvocation<ToolId extends string>(input: {
+  signature: string
+  claims: BaseLeaseClaims
+  counter: number
+  args: unknown
+  toolId: ToolId
+  nowMs?: number
+}) {
+  const invocation = verifyInvocation(input.signature, input.claims.subject_pubkey)
+  if (invocation.lease_id !== input.claims.lease_id) {
+    throw new LeaseError('LEASE_REQUIRED', 'Invocation is for another lease')
+  }
+  if (invocation.tool_id !== input.toolId || !input.claims.tool_ids.includes(input.toolId)) {
+    throw new LeaseError('TOOL_NOT_ALLOWED', 'Invocation is for another tool')
+  }
+  if (invocation.args_hash !== hashArgs(input.args)) {
+    throw new LeaseError('ARGUMENT_HASH_MISMATCH', 'Signed arguments do not match the request')
+  }
+  if (invocation.counter !== input.counter) {
+    throw new LeaseError('REPLAY_DETECTED', 'Signed counter does not match')
+  }
+  const nowSeconds = (input.nowMs ?? Date.now()) / 1000
+  if (Math.abs(nowSeconds - invocation.issued_at) > 120) {
+    throw new LeaseError('LEASE_REQUIRED', 'Invocation timestamp is invalid')
+  }
+  return invocation as Scope402Invocation & { tool_id: ToolId }
 }
