@@ -37,38 +37,41 @@ test('capability session drives one allowed call and three real denial shapes', 
   const { prepared, result } = fixture()
   const bodies: string[] = []
   const secret = 's'.repeat(32)
+  let expired = false
+  let legitimateSeen = false
+  let legitimateBody = ''
   const request: typeof fetch = async (input, init) => {
     const url = String(input)
     if (url.endsWith('/expire')) {
       assert.equal(new Headers(init?.headers).get('Authorization'), `Bearer ${secret}`)
+      expired = true
       return Response.json({ status: 'expired' })
     }
     const body = String(init?.body)
     bodies.push(body)
     const subject = JSON.parse(Buffer.from(JSON.parse(body).signature.split('.')[0], 'base64url').toString())
       .subject_pubkey
-    if (bodies.length === 1) {
-      assert.notEqual(subject, prepared.subject.subjectPubkey)
+    if (subject !== prepared.subject.subjectPubkey) {
       return Response.json({ error: 'SUBJECT_KEY_MISMATCH', message: 'wrong key' }, { status: 403 })
     }
-    if (bodies.length === 2) {
-      assert.equal(subject, prepared.subject.subjectPubkey)
+    if (expired) return Response.json({ error: 'LEASE_EXPIRED', message: 'expired' }, { status: 410 })
+    if (!legitimateSeen) {
+      legitimateSeen = true
+      legitimateBody = body
       return Response.json({ lease_id: 'lease', counter: 1, finding: result.findings[0] })
     }
-    if (bodies.length === 3) {
-      assert.equal(body, bodies[1])
-      return Response.json({ error: 'REPLAY_DETECTED', message: 'replayed' }, { status: 403 })
-    }
-    return Response.json({ error: 'LEASE_EXPIRED', message: 'expired' }, { status: 410 })
+    assert.equal(body, legitimateBody)
+    return Response.json({ error: 'REPLAY_DETECTED', message: 'replayed' }, { status: 403 })
   }
   const session = createCapabilitySession(prepared, result, secret, request)
-  assert.equal((await session.execute('wrong-key')).code, 'SUBJECT_KEY_MISMATCH')
+  assert.equal((await session.execute('wrong-key')).remaining_calls, 3)
   const allowed = await session.execute('legitimate')
   assert.equal(allowed.status, 200)
   assert.equal(allowed.remaining_calls, 2)
+  assert.equal((await session.execute('wrong-key')).remaining_calls, 2)
   assert.equal((await session.execute('replay')).code, 'REPLAY_DETECTED')
   assert.equal((await session.execute('expire')).code, 'LEASE_EXPIRED')
-  assert.equal(bodies.length, 4)
+  assert.equal(bodies.length, 5)
 })
 
 test('clean scans cannot create a finding-specific capability session', () => {

@@ -57,17 +57,20 @@ There is intentionally one merchant tool: `finding_details`.
 
 ## Public proof
 
-A public-origin run against `expressjs/express` completed payment, scanning, lease issuance, an authorized follow-up, and replay denial.
+A public-origin run against `sindresorhus/is` completed payment, scanning, lease issuance, an authorized
+follow-up, wrong-key denial, byte-identical replay denial, and server-side expiry denial.
 
-- Transaction: `0.0.7162784@1788580086.153684986`
-- [HashScan](https://hashscan.io/testnet/transaction/0.0.7162784-1788580086-153684986)
-- Payer: `0.0.8258066`
+- Transaction: `0.0.7162784@1788595940.223982333`
+- [HashScan](https://hashscan.io/testnet/transaction/0.0.7162784-1788595940-223982333)
+- Payer: `0.0.10374937`
 - Merchant: `0.0.8258555`
-- Amount: `100000` tinybars (`0.001 HBAR`)
-- Scanned commit: `023767fe9872e029271df1418f73401bff20ff40`
+- Amount: `55500` tinybars (`0.000555 HBAR`)
+- Scanned commit: `7821031c66cdeb7256a0feb2d506535f9e84fcaf`
 - Lease audience: `https://scope402-auditlab.onrender.com/v1/tools`
 
-The Hedera Mirror Node reports `SUCCESS` and the corresponding 100,000 tinybar payer debit and merchant credit. A repeated signed invocation returned `403 REPLAY_DETECTED`.
+The Hedera Mirror Node reports `SUCCESS` and the corresponding 55,500 tinybar payer debit and merchant
+credit. The public hosted-agent path returned `200 FINDING_DETAILS_ALLOWED`, `403 SUBJECT_KEY_MISMATCH`,
+`403 REPLAY_DETECTED`, and `410 LEASE_EXPIRED`.
 
 ## Run locally
 

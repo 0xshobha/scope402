@@ -74,6 +74,7 @@ export function createCapabilitySession(prepared: PreparedScan, result: ScanResu
   const toolUrl = new URL('/v1/tools/finding_details', prepared.requestUrl)
   const expireUrl = new URL(`/v1/leases/${result.lease.lease_id}/expire`, prepared.requestUrl)
   let legitimateBody: string | undefined
+  let remainingCalls = result.lease.max_calls
 
   const call = (body: string) => request(toolUrl, {
     method: 'POST',
@@ -88,7 +89,7 @@ export function createCapabilitySession(prepared: PreparedScan, result: ScanResu
       if (action === 'wrong-key') {
         const data = invocation(result, finding.id, 1)
         const body = requestBody(result, data, attackerSubject().sign(data.claims))
-        return requireDenial(await call(body), action, 1, 403, 'SUBJECT_KEY_MISMATCH', 3)
+        return requireDenial(await call(body), action, 1, 403, 'SUBJECT_KEY_MISMATCH', remainingCalls)
       }
 
       if (action === 'legitimate') {
@@ -100,6 +101,7 @@ export function createCapabilitySession(prepared: PreparedScan, result: ScanResu
           const code = body && 'error' in body ? String(body.error) : 'UNKNOWN'
           throw new Error(`Expected an allowed tool call; AuditLab returned HTTP ${response.status} ${code}`)
         }
+        remainingCalls = result.lease.max_calls - 1
         return {
           action,
           verdict: 'ALLOWED',
@@ -107,14 +109,14 @@ export function createCapabilitySession(prepared: PreparedScan, result: ScanResu
           code: 'FINDING_DETAILS_ALLOWED',
           message: 'The declared subject key used one leased call.',
           counter: 1,
-          remaining_calls: 2,
+          remaining_calls: remainingCalls,
           finding,
         }
       }
 
       if (action === 'replay') {
         if (!legitimateBody) throw new Error('Run the legitimate invocation before replaying it')
-        return requireDenial(await call(legitimateBody), action, 1, 403, 'REPLAY_DETECTED', 2)
+        return requireDenial(await call(legitimateBody), action, 1, 403, 'REPLAY_DETECTED', remainingCalls)
       }
 
       if (!demoControlSecret || demoControlSecret.length < 32) {
@@ -132,7 +134,7 @@ export function createCapabilitySession(prepared: PreparedScan, result: ScanResu
       }
       const data = invocation(result, finding.id, 2)
       const body = requestBody(result, data, prepared.subject.sign(data.claims))
-      return requireDenial(await call(body), action, 2, 410, 'LEASE_EXPIRED', 2)
+      return requireDenial(await call(body), action, 2, 410, 'LEASE_EXPIRED', remainingCalls)
     },
   }
 }
