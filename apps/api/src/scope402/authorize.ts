@@ -47,11 +47,14 @@ export async function authorizeAndCommitInTransaction<Args, Authorized, Result>(
   if (legacyUnscoped && (claims.resource !== undefined || !options.allowLegacyUnscopedState)) {
     throw new LeaseError('LEASE_REQUIRED', 'Lease has no persisted resource policy')
   }
-  if (!legacyUnscoped && (state.formatVersion !== 1 || state.audience !== claims.aud ||
+  if (!legacyUnscoped && (![1, 2].includes(state.formatVersion ?? 0) || state.audience !== claims.aud ||
       state.catalogueHash !== claims.catalogue_hash ||
       !exactPolicyEcho(state.toolIds, claims.tool_ids) ||
       !exactPolicyEcho(state.resource, claims.resource))) {
     throw new LeaseError('LEASE_REQUIRED', 'Lease claims do not match stored state')
+  }
+  if (state.formatVersion === 2 && state.paymentQuoteId !== claims.offer_id) {
+    throw new LeaseError('LEASE_REQUIRED', 'Lease payment lineage does not match stored state')
   }
   if (state.expired || claims.exp <= Math.floor(Date.now() / 1000)) {
     throw new LeaseError('LEASE_EXPIRED', 'Lease has expired')

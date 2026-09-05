@@ -1,4 +1,4 @@
-import { createHash, randomUUID, type KeyObject } from 'node:crypto'
+import { createHash, type KeyObject } from 'node:crypto'
 import { canonicalJson } from './canonical.js'
 import { transaction, type TransactionClient } from './db.js'
 import { LeaseError } from './lease-error.js'
@@ -7,6 +7,7 @@ import { hashArgs, signInvocation as signScope402Invocation,
   verifyInvocation as verifyScope402Invocation, type Scope402Invocation } from './scope402/invocation.js'
 import { loadServiceKey, signLease as signScope402Lease,
   verifyLease as verifyScope402Lease } from './scope402/lease.js'
+import { persistRootCapability, prepareRootCapability } from './scope402/issuance.js'
 import { parseScope402PolicyInfo, type Scope402PolicyInfo } from './scope-extension.js'
 
 export type LeaseClaims = AuditLabLeaseClaims
@@ -46,33 +47,21 @@ export async function prepareLease(subjectPubkey: string, scan: { scan_id: strin
   if (validatedPolicy.subject.publicKey !== subjectPubkey) {
     throw new Error('Purchased Scope402 subject does not match lease subject')
   }
-  const now = Math.floor(Date.now() / 1000)
-  const tools = validatedPolicy.tools
-  const claims: LeaseClaims = {
-    lease_id: randomUUID(), subject_pubkey: validatedPolicy.subject.publicKey,
-    aud: validatedPolicy.audience,
-    catalogue_hash: createHash('sha256').update(canonicalJson(tools)).digest('hex'),
-    tool_ids: tools, max_calls: validatedPolicy.maxCalls,
-    exp: now + validatedPolicy.ttlSeconds, offer_id: offerId,
-    hedera_tx_id: transactionId, scan_id: scan.scan_id,
-    policy_hash: validatedPolicy.policyHash,
-    resource: validatedPolicy.resource,
-  }
-  return { token: signLease(claims, await loadServiceKey()), claims }
+  return prepareRootCapability(validatedPolicy, transactionId, offerId,
+    { scan_id: scan.scan_id }) as Promise<{ token: string; claims: LeaseClaims }>
 }
 
 export async function persistLease(client: TransactionClient,
   lease: Awaited<ReturnType<typeof prepareLease>>, findings: unknown[]) {
-  await client.query(
-    `INSERT INTO tool_leases
-       (lease_id, subject_pubkey, scan_id, hedera_tx_id, expires_at, max_calls, policy_hash,
-        resource, audience, catalogue_hash, tool_ids, format_version, findings)
-     VALUES ($1, $2, $3, $4, to_timestamp($5), $6, $7, $8, $9, $10, $11, 1, $12)`,
-    [lease.claims.lease_id, lease.claims.subject_pubkey, lease.claims.scan_id,
-      lease.claims.hedera_tx_id, lease.claims.exp, lease.claims.max_calls,
-      lease.claims.policy_hash, JSON.stringify(lease.claims.resource), lease.claims.aud,
-      lease.claims.catalogue_hash, JSON.stringify(lease.claims.tool_ids), JSON.stringify(findings)],
+  await persistRootCapability(client, lease, 'auditlab')
+  const result = await client.query(
+    `UPDATE tool_leases
+     SET scan_id = $2, findings = $3
+     WHERE lease_id = $1
+     RETURNING lease_id`,
+    [lease.claims.lease_id, lease.claims.scan_id, JSON.stringify(findings)],
   )
+  if (result.rowCount !== 1) throw new Error('AuditLab capability could not be bound to its scan')
 }
 
 export async function authorizeInvocation(claims: LeaseClaims, invocation: Invocation, findingId: string) {

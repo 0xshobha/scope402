@@ -5,6 +5,7 @@ export const auditLabDiscovery = {
   payment: { protocol: 'x402', version: 2, facilitator: 'blocky402' },
   resources: {
     repository_scan: { method: 'POST', path: '/v1/scans' },
+    tessera_plot: { method: 'POST', path: '/v1/plots' },
   },
   authorization: {
     scheme: 'scope402-tool-lease',

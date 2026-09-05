@@ -15,13 +15,15 @@ export type LockedCapabilityState = {
   usedCalls: number
   maxCalls: number
   lastCounter: number
-  formatVersion?: 1
+  formatVersion?: 1 | 2
+  paymentQuoteId?: string
+  merchantId?: string
 }
 
 export async function lockCapability(client: TransactionClient, leaseId: string) {
   const result = await client.query(
     `SELECT lease_id, subject_pubkey, policy_hash, audience, catalogue_hash, tool_ids, resource,
-            format_version,
+            format_version, payment_quote_id, merchant_id,
             extract(epoch from expires_at)::bigint AS expires_at,
             expires_at <= clock_timestamp() OR revoked_at IS NOT NULL AS expired,
             used_calls, max_calls, last_counter
@@ -43,7 +45,8 @@ export async function lockCapability(client: TransactionClient, leaseId: string)
     expiresAt: Number(row.expires_at), expired: Boolean(row.expired),
     usedCalls: Number(row.used_calls), maxCalls: Number(row.max_calls),
     lastCounter: Number(row.last_counter),
-    formatVersion: row.format_version === null ? undefined : Number(row.format_version) as 1,
+    formatVersion: row.format_version === null ? undefined : Number(row.format_version) as 1 | 2,
+    paymentQuoteId: row.payment_quote_id ?? undefined, merchantId: row.merchant_id ?? undefined,
   } satisfies LockedCapabilityState
 }
 

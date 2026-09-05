@@ -149,7 +149,8 @@ corepack pnpm build
 - browser actions are fixed requests to the hosted agent; keys, lease tokens, signatures, and demo-control secrets
   remain outside the browser
 - no HCS anchoring, Agent Kit plugin, or additional sponsor integration yet
-- no canvas merchant or ENS integration yet; those remain proposals, not current product claims
+- Tessera currently exposes only the locally tested paid root-capability purchase boundary; pixel placement,
+  delegation, the canvas UI, ENS, and WebMCP are not implemented or deployed yet
 
 ## AI assistance
 

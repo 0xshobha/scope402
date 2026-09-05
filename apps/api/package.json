@@ -10,7 +10,7 @@
     "build": "tsc",
     "start": "node --env-file-if-exists=.env dist/server.js",
     "typecheck": "tsc --noEmit && tsc --project tsconfig.test.json",
-    "test": "tsx --test test/blocky.test.ts test/canonical.test.ts test/discovery.test.ts test/github.test.ts test/health.test.ts test/quote-rate-limit.test.ts test/scans.test.ts test/settlement.test.ts test/tessera-resource.test.ts",
+    "test": "tsx --test test/blocky.test.ts test/canonical.test.ts test/discovery.test.ts test/github.test.ts test/health.test.ts test/plots.test.ts test/quote-rate-limit.test.ts test/scans.test.ts test/settlement.test.ts test/tessera-resource.test.ts",
     "test:integration": "tsx --env-file-if-exists=.env --test --test-concurrency=1 test/*.integration.test.ts"
   },
   "dependencies": {

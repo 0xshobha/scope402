@@ -33,6 +33,9 @@ export async function initializeDatabase() {
     ALTER TABLE payment_quotes ADD COLUMN IF NOT EXISTS pricing jsonb;
     ALTER TABLE payment_quotes ADD COLUMN IF NOT EXISTS scope402_extension jsonb;
     ALTER TABLE payment_quotes ADD COLUMN IF NOT EXISTS policy_hash text;
+    ALTER TABLE payment_quotes ADD COLUMN IF NOT EXISTS merchant_id text NOT NULL DEFAULT 'auditlab';
+    ALTER TABLE payment_quotes ADD COLUMN IF NOT EXISTS request_binding jsonb;
+    ALTER TABLE payment_quotes ALTER COLUMN repo_url DROP NOT NULL;
     CREATE TABLE IF NOT EXISTS payment_redemptions (
       transaction_id text PRIMARY KEY,
       quote_id uuid NOT NULL UNIQUE REFERENCES payment_quotes(quote_id),
@@ -48,6 +51,35 @@ export async function initializeDatabase() {
       quote_id uuid NOT NULL UNIQUE REFERENCES payment_quotes(quote_id),
       status text NOT NULL CHECK (status IN ('pending', 'running', 'retryable_failed', 'complete')),
       scan_result jsonb,
+      lease_id uuid,
+      lease_token text,
+      last_error text,
+      run_started_at timestamptz,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now()
+    );
+    CREATE TABLE IF NOT EXISTS tessera_slots (
+      canvas_id text NOT NULL,
+      slot integer NOT NULL CHECK (slot >= 0 AND slot < 16),
+      quote_id uuid UNIQUE REFERENCES payment_quotes(quote_id),
+      status text NOT NULL CHECK (status IN ('available', 'pending', 'allocated')),
+      reservation_expires_at timestamptz,
+      transaction_id text UNIQUE,
+      PRIMARY KEY (canvas_id, slot),
+      CHECK (
+        (status = 'available' AND quote_id IS NULL AND reservation_expires_at IS NULL AND transaction_id IS NULL) OR
+        (status = 'pending' AND quote_id IS NOT NULL AND reservation_expires_at IS NOT NULL AND transaction_id IS NULL) OR
+        (status = 'allocated' AND quote_id IS NOT NULL AND reservation_expires_at IS NULL AND transaction_id IS NOT NULL)
+      )
+    );
+    INSERT INTO tessera_slots (canvas_id, slot, status)
+    SELECT 'main', slot, 'available' FROM generate_series(0, 15) AS slot
+    ON CONFLICT (canvas_id, slot) DO NOTHING;
+    CREATE TABLE IF NOT EXISTS plot_jobs (
+      transaction_id text PRIMARY KEY REFERENCES payment_redemptions(transaction_id),
+      quote_id uuid NOT NULL UNIQUE REFERENCES payment_quotes(quote_id),
+      status text NOT NULL CHECK (status IN ('pending', 'running', 'retryable_failed', 'complete')),
+      result jsonb,
       lease_id uuid,
       lease_token text,
       last_error text,
@@ -74,7 +106,14 @@ export async function initializeDatabase() {
     ALTER TABLE tool_leases ADD COLUMN IF NOT EXISTS catalogue_hash text;
     ALTER TABLE tool_leases ADD COLUMN IF NOT EXISTS tool_ids jsonb;
     ALTER TABLE tool_leases ADD COLUMN IF NOT EXISTS format_version smallint
-      CHECK (format_version IS NULL OR format_version = 1);
+      CHECK (format_version IS NULL OR format_version IN (1, 2));
+    ALTER TABLE tool_leases DROP CONSTRAINT IF EXISTS tool_leases_format_version_check;
+    ALTER TABLE tool_leases ADD CONSTRAINT tool_leases_format_version_check
+      CHECK (format_version IS NULL OR format_version IN (1, 2));
+    ALTER TABLE tool_leases ALTER COLUMN scan_id DROP NOT NULL;
+    ALTER TABLE tool_leases ALTER COLUMN findings SET DEFAULT '[]'::jsonb;
+    ALTER TABLE tool_leases ADD COLUMN IF NOT EXISTS payment_quote_id uuid REFERENCES payment_quotes(quote_id);
+    ALTER TABLE tool_leases ADD COLUMN IF NOT EXISTS merchant_id text;
   `)
 }
 

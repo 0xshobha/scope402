@@ -3,11 +3,11 @@ import { isDeepStrictEqual } from 'node:util'
 import { PaymentRequirementsV2Schema } from '@x402/core/schemas'
 import type { PaymentRequirements } from '@x402/core/types'
 import type { RepositorySnapshot } from './github.js'
-import { database, transaction } from './db.js'
+import { database, transaction, type TransactionClient } from './db.js'
 import { PaymentError } from './payment-error.js'
 import { parseScope402Extension, type Scope402Extensions } from './scope-extension.js'
 
-function assertQuoteId(quoteId: string) {
+export function assertQuoteId(quoteId: string) {
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(quoteId)) {
     throw new PaymentError('QUOTE_INVALID', 'Missing or invalid quote_id')
   }
@@ -135,19 +135,30 @@ export async function settledRedemption(transactionId: string, quoteId: string) 
 }
 
 export function assertQuotedPayment(payload: { accepted: unknown; resource?: { url: string } },
-  quote: Awaited<ReturnType<typeof loadQuote>>) {
+  quote: { requirements: PaymentRequirements; resourceUrl: string }) {
   if (!isDeepStrictEqual(payload.accepted, quote.requirements) || payload.resource?.url !== quote.resourceUrl) {
     throw new PaymentError('PAYMENT_REQUIREMENTS_MISMATCH', 'Payment does not match the issued quote')
   }
 }
 
-export async function beginRedemption(transactionId: string, quoteId: string) {
-  const result = await database().query(
+async function insertRedemption(query: (text: string, values: string[]) =>
+  Promise<{ rowCount: number | null }>,
+  transactionId: string, quoteId: string) {
+  const result = await query(
     `INSERT INTO payment_redemptions (transaction_id, quote_id, status)
      VALUES ($1, $2, 'verifying') ON CONFLICT DO NOTHING RETURNING transaction_id`,
     [transactionId, quoteId],
   )
   if (result.rowCount !== 1) throw new PaymentError('QUOTE_ALREADY_REDEEMED', 'Quote or transaction was already used')
+}
+
+export async function beginRedemption(transactionId: string, quoteId: string) {
+  return insertRedemption((text, values) => database().query(text, values), transactionId, quoteId)
+}
+
+export async function beginRedemptionInTransaction(client: TransactionClient,
+  transactionId: string, quoteId: string) {
+  return insertRedemption((text, values) => client.query(text, values), transactionId, quoteId)
 }
 
 export async function abandonVerification(transactionId: string) {

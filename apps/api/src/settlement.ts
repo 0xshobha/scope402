@@ -65,6 +65,15 @@ async function facilitator(path: 'verify' | 'settle', payload: PaymentPayload, r
 export async function settlePayment(quoteId: string, payload: PaymentPayload, requirements: PaymentRequirements) {
   const transaction = paymentTransactionId(payload)
   await beginRedemption(transaction, quoteId)
+  return completeSettlement(transaction, payload, requirements)
+}
+
+export async function settleBegunPayment(payload: PaymentPayload, requirements: PaymentRequirements) {
+  return completeSettlement(paymentTransactionId(payload), payload, requirements)
+}
+
+async function completeSettlement(transaction: string, payload: PaymentPayload,
+  requirements: PaymentRequirements) {
   let payer: string
   try {
     payer = verifiedPayer(await facilitator('verify', payload, requirements))

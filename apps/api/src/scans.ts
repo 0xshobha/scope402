@@ -1,19 +1,19 @@
-import { createPublicKey } from 'node:crypto'
 import { Hono } from 'hono'
 import { bodyLimit } from 'hono/body-limit'
 import { decodePaymentSignatureHeader, encodePaymentRequiredHeader, encodePaymentResponseHeader } from '@x402/core/http'
 import { PaymentPayloadV2Schema } from '@x402/core/schemas'
-import type { PaymentPayload, PaymentRequired, PaymentRequirements } from '@x402/core/types'
-import { ExactHederaScheme } from '@x402/hedera/exact/server'
+import type { PaymentPayload } from '@x402/core/types'
 import { getHederaSupport } from './blocky.js'
 import { GitHubRequestError, prepareRepository, scanRepositorySnapshot } from './github.js'
 import { PaymentError } from './payment-error.js'
+import { assertPaymentAmount as assertOfferAmount, merchantConfig, paymentRequired } from './payment-offer.js'
 import { settledPaymentDetails } from './payment-receipt.js'
 import { assertQuotedPayment, createQuote, loadQuote, settledRedemption, type Pricing } from './payments.js'
 import { quoteRateLimiter } from './quote-rate-limit.js'
 import { fulfillPaidScan, ScanJobError } from './scan-jobs.js'
 import { paymentTransactionId, settlePayment } from './settlement.js'
 import { assertScope402Echo, scope402Extension } from './scope-extension.js'
+import { assertP256Subject } from './scope402/subject.js'
 
 export type ScanRequest = { repo_url: string; subject_pubkey: string }
 
@@ -29,32 +29,8 @@ export function parseScanRequest(value: unknown): ScanRequest {
       !/^\/[\w.-]+\/[\w.-]+\/?$/.test(repo.pathname)) {
     throw new Error('repo_url must be an HTTPS GitHub owner/repository URL')
   }
-  try {
-    const key = createPublicKey({
-      key: Buffer.from(subject_pubkey, 'base64url'), format: 'der', type: 'spki',
-    })
-    if (key.asymmetricKeyType !== 'ec' || key.asymmetricKeyDetails?.namedCurve !== 'prime256v1') {
-      throw new Error('Wrong curve')
-    }
-  } catch {
-    throw new Error('subject_pubkey must be a base64url-encoded P-256 SPKI public key')
-  }
+  assertP256Subject(subject_pubkey)
   return { repo_url, subject_pubkey }
-}
-
-export function merchantConfig() {
-  const payTo = process.env.HEDERA_MERCHANT_ACCOUNT_ID
-  if (!payTo || !/^\d+\.\d+\.[1-9]\d*$/.test(payTo)) {
-    throw new Error('Set HEDERA_MERCHANT_ACCOUNT_ID to the merchant account ID')
-  }
-  return { payTo }
-}
-
-export function assertPaymentAmount(amount: string) {
-  if (!/^[1-9]\d*$/.test(amount) || BigInt(amount) > 100_000_000n) {
-    throw new Error('Metered scan amount must be between 1 and 100000000 tinybars (1 HBAR)')
-  }
-  return amount
 }
 
 function positiveInteger(name: string, fallback: string, maximum: bigint) {
@@ -88,24 +64,9 @@ export function meterScan(filesConsidered: number,
   }
 }
 
-export async function paymentRequired(
-  url: string,
-  config: { payTo: string; amount: string },
-  support: Awaited<ReturnType<typeof getHederaSupport>>,
-  description = 'AuditLab repository scan',
-  extensions?: Record<string, unknown>,
-): Promise<PaymentRequired> {
-  const requirement = await new ExactHederaScheme().enhancePaymentRequirements({
-    scheme: support.scheme, network: support.network, asset: '0.0.0',
-    amount: config.amount, payTo: config.payTo, maxTimeoutSeconds: 120, extra: {},
-  }, support, [])
-  return {
-    x402Version: 2,
-    error: 'PAYMENT-SIGNATURE header is required',
-    resource: { url, description, mimeType: 'application/json' },
-    accepts: [requirement],
-    ...(extensions ? { extensions } : {}),
-  }
+export { merchantConfig, paymentRequired } from './payment-offer.js'
+export function assertPaymentAmount(amount: string) {
+  return assertOfferAmount(amount, 'Metered scan')
 }
 
 export { settledPaymentDetails } from './payment-receipt.js'
