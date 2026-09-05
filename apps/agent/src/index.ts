@@ -3,6 +3,7 @@ import { decodePaymentRequiredHeader, decodePaymentResponseHeader, encodePayment
 import { createClientHederaSigner, inspectHederaTransaction, PrivateKey } from '@x402/hedera'
 import { ExactHederaScheme } from '@x402/hedera/exact/client'
 import { canonicalJson } from './canonical.js'
+import { discoverScanResource } from './discovery.js'
 import { selectPayment } from './policy.js'
 import { attackerSubject, signInvocation, subjectPublicKey } from './subject.js'
 
@@ -35,10 +36,13 @@ async function run() {
   const repo = process.argv[2]
   if (!repo) throw new Error('Pass a public GitHub repository URL as the argument')
   const demo = process.argv.includes('--demo')
-  const url = new URL('/v1/scans', process.env.AUDITLAB_URL ?? 'http://127.0.0.1:3000')
-  if (url.protocol !== 'https:' && !(url.protocol === 'http:' && ['127.0.0.1', 'localhost'].includes(url.hostname))) {
+  const baseUrl = new URL(process.env.AUDITLAB_URL ?? 'http://127.0.0.1:3000')
+  if (baseUrl.protocol !== 'https:' &&
+      !(baseUrl.protocol === 'http:' && ['127.0.0.1', 'localhost'].includes(baseUrl.hostname))) {
     throw new Error('Use HTTPS, or HTTP on localhost only')
   }
+  const url = await discoverScanResource(baseUrl)
+  console.log(`Discovered paid resource: ${url.pathname}`)
   const body = JSON.stringify({ repo_url: repo, subject_pubkey: await subjectPublicKey() })
   const request = { method: 'POST', body, redirect: 'error' as const }
   const response = await fetch(url, {
