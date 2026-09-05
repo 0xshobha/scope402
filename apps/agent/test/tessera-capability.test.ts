@@ -79,6 +79,7 @@ test('Tessera session delegates a distinct worker and drives only fixed real API
   }) as typeof fetch
   const session = createTesseraCapabilitySession(prepared, result, 'x'.repeat(32), request, worker)
   assert.equal((await session.execute('delegate')).code, 'CAPABILITY_DELEGATED')
+  assert.equal(session.root().remaining_calls, 11)
   assert.match(session.child()?.subject ?? '', /^p256:[0-9a-f]{16}$/)
   assert.equal((await session.execute('place-outside')).code, 'OUT_OF_SCOPE')
   assert.equal((await session.execute('wrong-key')).code, 'SUBJECT_KEY_MISMATCH')
@@ -113,7 +114,8 @@ test('Tessera session recovers a committed pixel with the same private operation
         hedera_tx_id: result.lease.hedera_tx_id, policy_hash: `sha256:${'b'.repeat(64)}`,
         resource: childResource, root_lease_id: result.lease.root_lease_id,
         parent_lease_id: result.lease.lease_id,
-      } })
+      }, parent: { lease_id: result.lease.lease_id, reserved_calls: 1,
+        remaining_calls: 11, delegation_counter: 1 } })
     }
     pixelAttempts += 1
     if (pixelAttempts === 1) {

@@ -111,6 +111,20 @@ The Hedera Mirror Node reports `SUCCESS` and the corresponding 55,500 tinybar pa
 credit. The public hosted-agent path returned `200 FINDING_DETAILS_ALLOWED`, `403 SUBJECT_KEY_MISMATCH`,
 `403 REPLAY_DETECTED`, and `410 LEASE_EXPIRED`.
 
+A public Tessera run purchased an `8 × 8`, 12-call root capability, delegated a contained `4 × 4`, one-call
+capability to a different P-256 worker, committed one in-scope pixel, and rejected boundary violations.
+
+- Transaction: `0.0.7162784@1788633466.792422734`
+- [HashScan](https://hashscan.io/testnet/transaction/0.0.7162784-1788633466-792422734)
+- Payer: `0.0.10374937`
+- Merchant: `0.0.8258555`
+- Amount: `56000` tinybars (`0.00056 HBAR`)
+- Root policy hash: `sha256:38b5df196467cfe41b65ea2204dfc7f847c089263d167d6eb72d72e174c6c89d`
+
+Mirror Node reports `SUCCESS` / `CRYPTOTRANSFER`, the 56,000-tinybar payer debit, and matching merchant
+credit. The hosted path returned `200 CAPABILITY_DELEGATED`, `403 OUT_OF_SCOPE`,
+`403 SUBJECT_KEY_MISMATCH`, `200 PIXEL_PLACED`, `403 REPLAY_DETECTED`, and `410 LEASE_EXPIRED`.
+
 ## Run locally
 
 Requirements: Node.js 22+, pnpm through Corepack, and PostgreSQL.
@@ -188,8 +202,8 @@ immutable lineage, root expiry, budget conservation, and concurrent invocation/d
 - browser actions are fixed requests to the hosted agent; keys, lease tokens, signatures, and demo-control secrets
   remain outside the browser
 - no HCS anchoring, Agent Kit plugin, or additional sponsor integration yet
-- Tessera's paid-root, atomic pixel, one-level delegation, hosted-agent orchestration, and browser UI are
-  implemented and deployed; no public Tessera HBAR transaction, ENS, or WebMCP proof is claimed yet
+- Tessera's paid-root, atomic pixel, one-level delegation, hosted-agent orchestration, browser UI, and public
+  Hedera payment-to-denial sequence are implemented and evidenced; no ENS or WebMCP proof is claimed
 
 ## AI assistance
 

@@ -66,14 +66,14 @@ function subjectFingerprint(subjectPubkey: string) {
   return `p256:${createHash('sha256').update(subjectPubkey).digest('hex').slice(0, 16)}`
 }
 
-function publicRoot(result: TesseraPlotResult): PublicTesseraCapability {
+function publicRoot(result: TesseraPlotResult, remainingCalls: number): PublicTesseraCapability {
   return {
     lease_id: result.lease.lease_id,
     subject: subjectFingerprint(result.lease.subject_pubkey),
     resource: result.lease.resource,
     tool_ids: ['place_pixel'],
     max_calls: result.lease.max_calls,
-    remaining_calls: result.lease.max_calls,
+    remaining_calls: remainingCalls,
     exp: result.lease.exp,
     root_lease_id: result.lease.root_lease_id,
     payment_quote_id: result.lease.offer_id,
@@ -109,7 +109,7 @@ async function body(response: Response) {
 export function createTesseraCapabilitySession(prepared: PreparedPlot, result: TesseraPlotResult,
   demoControlSecret: string, request: typeof fetch = fetch,
   worker: AgentSubject = ephemeralSubject()): TesseraCapabilitySession {
-  const root = publicRoot(result)
+  let rootRemaining: number = result.lease.max_calls
   const attacker = attackerSubject()
   const toolUrl = new URL('/v1/tools/place_pixel', prepared.requestUrl)
   const delegationUrl = new URL(`/v1/leases/${result.lease.lease_id}/delegations`, prepared.requestUrl)
@@ -151,7 +151,7 @@ export function createTesseraCapabilitySession(prepared: PreparedPlot, result: T
   }
 
   return {
-    root: () => structuredClone(root),
+    root: () => publicRoot(result, rootRemaining),
     child: () => childLease ? publicChild(childLease, childRemaining) : undefined,
     async execute(action) {
       if (action === 'delegate') {
@@ -185,6 +185,7 @@ export function createTesseraCapabilitySession(prepared: PreparedPlot, result: T
         })
         const value = await body(response)
         const lease = record(value?.lease, 'Tessera returned no delegated capability')
+        const parent = record(value?.parent, 'Tessera returned no parent budget state')
         if (response.status !== 200 || value?.status !== 'CAPABILITY_DELEGATED' ||
             typeof lease.token !== 'string' || typeof lease.lease_id !== 'string' ||
             lease.subject_pubkey !== worker.subjectPubkey || lease.parent_lease_id !== result.lease.lease_id ||
@@ -193,11 +194,14 @@ export function createTesseraCapabilitySession(prepared: PreparedPlot, result: T
             lease.max_calls !== 1 || canonicalJson(lease.resource) !== canonicalJson(childResource) ||
             !Array.isArray(lease.tool_ids) || lease.tool_ids.length !== 1 || lease.tool_ids[0] !== 'place_pixel' ||
             !Number.isSafeInteger(lease.exp) || Number(lease.exp) > result.lease.exp ||
+            parent.lease_id !== result.lease.lease_id || parent.reserved_calls !== 1 ||
+            !Number.isSafeInteger(parent.remaining_calls) || Number(parent.remaining_calls) !== rootRemaining - 1 ||
             typeof lease.policy_hash !== 'string') {
           throw new Error('Tessera returned an invalid delegated capability')
         }
         childLease = lease as unknown as ChildLease
         childRemaining = 1
+        rootRemaining = Number(parent.remaining_calls)
         return output({ action, verdict: 'ALLOWED', status: 200, code: 'CAPABILITY_DELEGATED',
           message: 'Principal A delegated one contained call to the distinct Worker B key.',
           remaining_calls: childRemaining })
