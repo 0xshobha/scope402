@@ -18,11 +18,13 @@ async function toolCall(url: URL, body: string) {
   })
 }
 
-async function requireDenial(response: Response, expected: string) {
+async function requireDenial(response: Response, expectedStatus: number, expectedError: string) {
   const body: unknown = await response.json().catch(() => null)
   const error = body && typeof body === 'object' && 'error' in body ? String(body.error) : 'UNKNOWN'
-  if (error !== expected) throw new Error(`Expected ${expected}; API returned HTTP ${response.status}: ${error}`)
-  console.log(`[ATTACK] ${expected} — DENIED`)
+  if (response.status !== expectedStatus || error !== expectedError) {
+    throw new Error(`Expected HTTP ${expectedStatus} ${expectedError}; API returned HTTP ${response.status}: ${error}`)
+  }
+  console.log(`[ATTACK] ${expectedError} — DENIED`)
 }
 
 async function run() {
@@ -103,7 +105,7 @@ async function run() {
     const attacker = attackerSubject()
     const wrongKeyBody = JSON.stringify({ lease: result.lease.token, args, counter: 1,
       signature: attacker.sign(invocation(1)) })
-    await requireDenial(await toolCall(url, wrongKeyBody), 'SUBJECT_KEY_MISMATCH')
+    await requireDenial(await toolCall(url, wrongKeyBody), 403, 'SUBJECT_KEY_MISMATCH')
   }
   const legitimateBody = JSON.stringify({ lease: result.lease.token, args, counter: 1,
     signature: await signInvocation(invocation(1)) })
@@ -111,14 +113,20 @@ async function run() {
   if (!toolResponse.ok) throw new Error(`finding_details returned HTTP ${toolResponse.status}`)
   console.log(`[CALL] ALLOWED — ${JSON.stringify(await toolResponse.json())}`)
   if (!demo) return
-  await requireDenial(await toolCall(url, legitimateBody), 'REPLAY_DETECTED')
+  await requireDenial(await toolCall(url, legitimateBody), 403, 'REPLAY_DETECTED')
+  const demoSecret = process.env.DEMO_CONTROL_SECRET
+  if (!demoSecret) throw new Error('Set DEMO_CONTROL_SECRET to run the expiry demo')
   const expired = await fetch(new URL(`/v1/leases/${result.lease.lease_id}/expire`, url), {
-    method: 'POST', redirect: 'error', signal: AbortSignal.timeout(20_000),
+    method: 'POST', headers: { Authorization: `Bearer ${demoSecret}` },
+    redirect: 'error', signal: AbortSignal.timeout(20_000),
   })
+  if (expired.status === 404) {
+    throw new Error('Demo controls are disabled on this API or the demo secret was rejected')
+  }
   if (!expired.ok) throw new Error(`Demo expiry returned HTTP ${expired.status}`)
   const expiredBody = JSON.stringify({ lease: result.lease.token, args, counter: 2,
     signature: await signInvocation(invocation(2)) })
-  await requireDenial(await toolCall(url, expiredBody), 'LEASE_EXPIRED')
+  await requireDenial(await toolCall(url, expiredBody), 410, 'LEASE_EXPIRED')
 }
 
 run().catch((error: unknown) => {

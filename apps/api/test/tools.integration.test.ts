@@ -119,9 +119,13 @@ test('enforces ToolLease subject, counter, and server expiry', async (t) => {
   await t.test('expires a lease through an enabled demo control', async () => {
     const issued = await lease()
     const previous = process.env.ENABLE_DEMO_CONTROLS
+    const previousSecret = process.env.DEMO_CONTROL_SECRET
     process.env.ENABLE_DEMO_CONTROLS = 'true'
+    process.env.DEMO_CONTROL_SECRET = 'test-demo-control-secret-at-least-32-bytes'
     try {
-      const expired = await app.request(`/v1/leases/${issued.claims.lease_id}/expire`, { method: 'POST' })
+      const expired = await app.request(`/v1/leases/${issued.claims.lease_id}/expire`, {
+        method: 'POST', headers: { Authorization: `Bearer ${process.env.DEMO_CONTROL_SECRET}` },
+      })
       assert.equal(expired.status, 200)
       assert.deepEqual(await expired.json(), { lease_id: issued.claims.lease_id, status: 'expired' })
       const response = await request(issued.token, issued.claims, 1)
@@ -130,20 +134,36 @@ test('enforces ToolLease subject, counter, and server expiry', async (t) => {
     } finally {
       if (previous === undefined) delete process.env.ENABLE_DEMO_CONTROLS
       else process.env.ENABLE_DEMO_CONTROLS = previous
+      if (previousSecret === undefined) delete process.env.DEMO_CONTROL_SECRET
+      else process.env.DEMO_CONTROL_SECRET = previousSecret
     }
   })
 
   await t.test('hides disabled and unknown demo controls', async () => {
     const previous = process.env.ENABLE_DEMO_CONTROLS
+    const previousSecret = process.env.DEMO_CONTROL_SECRET
     delete process.env.ENABLE_DEMO_CONTROLS
+    delete process.env.DEMO_CONTROL_SECRET
     try {
       assert.equal((await app.request(`/v1/leases/${randomUUID()}/expire`, { method: 'POST' })).status, 404)
       process.env.ENABLE_DEMO_CONTROLS = 'true'
-      assert.equal((await app.request(`/v1/leases/${randomUUID()}/expire`, { method: 'POST' })).status, 404)
-      assert.equal((await app.request('/v1/leases/not-a-uuid/expire', { method: 'POST' })).status, 404)
+      process.env.DEMO_CONTROL_SECRET = 'test-demo-control-secret-at-least-32-bytes'
+      const endpoint = `/v1/leases/${randomUUID()}/expire`
+      assert.equal((await app.request(endpoint, { method: 'POST' })).status, 404)
+      assert.equal((await app.request(endpoint, {
+        method: 'POST', headers: { Authorization: 'Bearer wrong-secret' },
+      })).status, 404)
+      assert.equal((await app.request(endpoint, {
+        method: 'POST', headers: { Authorization: `Bearer ${'é'.repeat(process.env.DEMO_CONTROL_SECRET.length)}` },
+      })).status, 404)
+      assert.equal((await app.request('/v1/leases/not-a-uuid/expire', {
+        method: 'POST', headers: { Authorization: `Bearer ${process.env.DEMO_CONTROL_SECRET}` },
+      })).status, 404)
     } finally {
       if (previous === undefined) delete process.env.ENABLE_DEMO_CONTROLS
       else process.env.ENABLE_DEMO_CONTROLS = previous
+      if (previousSecret === undefined) delete process.env.DEMO_CONTROL_SECRET
+      else process.env.DEMO_CONTROL_SECRET = previousSecret
     }
   })
 })

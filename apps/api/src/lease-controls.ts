@@ -1,3 +1,4 @@
+import { timingSafeEqual } from 'node:crypto'
 import { Hono } from 'hono'
 import { database } from './db.js'
 
@@ -7,6 +8,13 @@ export const leaseControls = new Hono()
 
 leaseControls.post('/:leaseId/expire', async (c) => {
   if (process.env.ENABLE_DEMO_CONTROLS !== 'true') return c.notFound()
+  const secret = process.env.DEMO_CONTROL_SECRET
+  const authorization = c.req.header('Authorization')
+  const supplied = authorization?.startsWith('Bearer ') ? authorization.slice(7) : ''
+  const expected = Buffer.from(secret ?? '')
+  const actual = Buffer.from(supplied)
+  if (!secret || secret.length < 32 || actual.length !== expected.length ||
+      !timingSafeEqual(actual, expected)) return c.notFound()
   const leaseId = c.req.param('leaseId')
   if (!uuid.test(leaseId)) return c.notFound()
   const result = await database().query(
