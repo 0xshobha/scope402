@@ -23,22 +23,13 @@ Public web: [scope402.onrender.com](https://scope402.onrender.com)
 An x402 settlement proves that money moved. It does not decide what the buyer may do afterward. Scope402
 connects the purchase to limited permission while keeping payment and authorization separate:
 
-```mermaid
-flowchart LR
-  UI["Browser<br/>no private keys"] -->|"prepare, approve, fixed actions"| A["Scope402 agent<br/>payer + P-256 subjects"]
-  A -->|"unpaid request"| API["Merchant API<br/>Scope402 kernel"]
-  API -->|"402 + price + capability policy H"| A
-  A -->|"validate H + PAYMENT-SIGNATURE"| API
-  API --> B["Blocky402"] --> H["Hedera testnet<br/>native HBAR"]
-  H --> HS["HashScan / Mirror Node proof"]
-  API --> M{"Useful work"}
-  M --> G["AuditLab<br/>exact GitHub commit"]
-  M --> T["Tessera<br/>bounded canvas region"]
-  API -->|"root capability, same policy H"| A
-  A -->|"signed attenuation"| W["Worker<br/>narrower subject, resource, budget, expiry"]
-  W -->|"signed invocation"| API
-  API --> DB[("PostgreSQL<br/>atomic counter, budget, expiry<br/>and merchant mutation")]
-```
+![Scope402 conceptual architecture: pay once, receive bounded authority, delegate a narrower capability, and enforce every later action](docs/assets/scope402-conceptual-architecture.jpg)
+
+The diagram above shows the broader model. AuditLab and Tessera are implemented today; Web/MCP tools and
+cloud/data APIs are examples of where the same authorization model can be applied, not current integrations.
+The exact architecture of the running implementation is shown below.
+
+![Scope402 runtime architecture: browser, hosted agent, x402 policy, Blocky402, Hedera, merchants, delegated worker, and atomic enforcement](docs/assets/scope402-runtime-architecture.svg)
 
 The browser is not trusted with either the Hedera payer key or the subject private key. The payer is a separate Node.js process. The merchant never pays itself.
 
@@ -66,6 +57,7 @@ charging for every call or exposing a broad bearer credential:
 - Blocky402 discovery, verification, and Hedera testnet settlement
 - native HBAR payment with distinct payer and merchant accounts
 - durable quote and transaction replay protection
+- Mirror Node reconciliation when settlement was broadcast but the facilitator response is ambiguous
 - resumable paid scan fulfillment without a second settlement
 - public GitHub commit resolution and one bounded hygiene check
 - compact ES256 ToolLease bound to the subject key declared before payment
@@ -196,6 +188,8 @@ immutable lineage, root expiry, budget conservation, and concurrent invocation/d
 - completed paid retries return the original scan and ToolLease instead of granting fresh authority
 - browser actions are fixed requests to the hosted agent; keys, lease tokens, signatures, and demo-control secrets
   remain outside the browser
+- hosted-agent run and abuse-control state is intentionally single-instance and in memory for this public testnet
+  demonstration; it is not presented as a production multi-instance control plane
 - no HCS anchoring, Agent Kit plugin, or additional sponsor integration yet
 - Tessera's paid-root, atomic pixel, one-level delegation, hosted-agent orchestration, browser UI, and public
   Hedera payment-to-denial sequence are implemented and evidenced; no ENS or WebMCP proof is claimed
