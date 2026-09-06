@@ -11,8 +11,8 @@ calls to `finding_details` for five minutes.
 
 Tessera reuses the same authorization kernel for a spatial resource: a principal purchases an `8 × 8`
 paint capability, then delegates a strictly narrower, conserved call budget to a different P-256 worker.
-Its public browser flow can prepare and recover a real payment quote; a public Tessera settlement is not yet
-claimed as evidence.
+Its public browser flow prepares and recovers the quote, performs the guarded testnet purchase, and drives the
+fixed delegation, pixel, boundary, wrong-key, replay, and expiry sequence without exposing private keys.
 
 Public API: [scope402-auditlab.onrender.com](https://scope402-auditlab.onrender.com/health)
 
@@ -84,15 +84,14 @@ charging for every call or exposing a broad bearer credential:
 - x402 v2 `scope402` extension that binds the declared subject, exact resource revision, tool allowlist,
   call budget, and lease lifetime before the payer signs
 - merchant-independent policy, lease, invocation, replay, expiry, budget, and resource-authorization kernel
-- locally tested Tessera `POST /v1/plots`, server-authoritative canvas, and atomic `place_pixel` execution
+- deployed Tessera `POST /v1/plots`, server-authoritative canvas, and atomic `place_pixel` execution
 - parent-signed Tessera attenuation to a distinct worker key with strict rectangle containment, immutable
   payment lineage, separate delegation replay counters, and conserved parent/child budgets
 - guarded Tessera browser orchestration with prepare-before-pay approval, refresh recovery, and fixed
   server-generated delegation and attack actions
 
-AuditLab exposes `finding_details`; Tessera exposes `place_pixel`. AuditLab has a public payment-to-denial
-proof. Tessera has a public, judge-runnable prepare flow; its first public paid run remains an explicit evidence
-gate.
+AuditLab exposes `finding_details`; Tessera exposes `place_pixel`. Both have public payment-to-denial proof,
+with exact transactions and outcomes recorded below.
 
 ## Public proof
 
