@@ -7,7 +7,7 @@ type Approval = { at: number; amount: bigint }
 export class HostedAgentGuard {
   private readonly approvals: Approval[] = []
   private readonly pending = new Map<string, { payer: string; amount: bigint }>()
-  private readonly runAttempts = new Map<string, number[]>()
+  private readonly runAttempts = new Map<string, Array<{ runId: string; at: number }>>()
   private readonly globalRuns: number[] = []
   private readonly activeRuns = new Map<string, { runId: string; expiresAt: number }>()
 
@@ -26,12 +26,15 @@ export class HostedAgentGuard {
       this.globalRuns.shift()
     }
     for (const [ip, values] of this.runAttempts) {
-      const current = values.filter((value) => value > now - 60 * 60 * 1_000)
+      const current = values.filter((value) => value.at > now - 60 * 60 * 1_000)
       if (current.length) this.runAttempts.set(ip, current)
       else this.runAttempts.delete(ip)
     }
     for (const [ip, active] of this.activeRuns) {
-      if (active.expiresAt <= now) this.activeRuns.delete(ip)
+      if (active.expiresAt <= now) {
+        this.activeRuns.delete(ip)
+        this.refundRunAttempt(active.runId)
+      }
     }
   }
 
@@ -46,16 +49,25 @@ export class HostedAgentGuard {
     if (this.activeRuns.has(ip)) {
       throw new HostedAgentLimitError('This visitor already has an active hosted-agent run')
     }
-    attempts.push(now)
+    attempts.push({ runId, at: now })
     this.globalRuns.push(now)
     this.runAttempts.set(ip, attempts)
     this.activeRuns.set(ip, { runId, expiresAt })
   }
 
-  releaseRun(runId: string) {
+  private refundRunAttempt(runId: string) {
+    for (const [ip, attempts] of this.runAttempts) {
+      const current = attempts.filter((attempt) => attempt.runId !== runId)
+      if (current.length) this.runAttempts.set(ip, current)
+      else this.runAttempts.delete(ip)
+    }
+  }
+
+  releaseRun(runId: string, refundAttempt = false) {
     for (const [ip, active] of this.activeRuns) {
       if (active.runId === runId) this.activeRuns.delete(ip)
     }
+    if (refundAttempt) this.refundRunAttempt(runId)
   }
 
   assertPaymentCapacity(amount: bigint) {

@@ -147,7 +147,7 @@ export class DemoRunService {
     try {
       prepared = await this.dependencies.prepare(repoUrl)
     } catch (error) {
-      this.hostedGuard.releaseRun(runId)
+      this.hostedGuard.releaseRun(runId, true)
       throw error
     }
     const publicRun: PublicRun = {
@@ -228,7 +228,7 @@ export class DemoRunService {
         run.public.state = 'COMPLETE'
         run.public.result = publicResult(approved.result)
         run.public.error = undefined
-        this.hostedGuard.releaseRun(run.public.run_id)
+        this.hostedGuard.releaseRun(run.public.run_id, !run.paymentAttempted)
         return structuredClone(run.public)
       } catch (error) {
         this.dependencies.logError?.(error instanceof Error ? error.message : 'Unknown hosted demo-agent failure')

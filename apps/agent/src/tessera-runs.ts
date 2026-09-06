@@ -92,7 +92,7 @@ export class TesseraRunService {
     try {
       prepared = await this.dependencies.prepare(principal)
     } catch (error) {
-      this.guard.releaseRun(runId)
+      this.guard.releaseRun(runId, true)
       throw error
     }
     const token = randomBytes(32).toString('base64url')
@@ -194,7 +194,7 @@ export class TesseraRunService {
         run.public.state = 'FAILED'
         run.public.error = { code: error instanceof DemoRunError ? error.code : 'DEMO_PAYMENT_FAILED',
           message: error instanceof Error ? error.message : 'Hosted Tessera agent failed' }
-        this.guard.releaseRun(run.public.run_id)
+        this.guard.releaseRun(run.public.run_id, !run.paymentAttempted)
         if (error instanceof DemoRunError) throw error
         throw new DemoRunError('DEMO_PAYMENT_FAILED', 502,
           'Hosted Tessera agent could not complete payment')

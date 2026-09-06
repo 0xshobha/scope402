@@ -231,3 +231,25 @@ test('AuditLab and Tessera share one active-run and payment budget', async () =>
   const plot = await tessera.instance.create('203.0.113.1')
   assert.throws(() => tessera.instance.approve(plot.run.run_id, plot.run_token), /spend limit/)
 })
+
+test('expired unpaid preparations do not exhaust the visitor run quota', () => {
+  let now = 1_000_000
+  const guard = new HostedAgentGuard({ ...limits, perIpRunsPerHour: 1 }, () => now)
+  guard.acquireRun('203.0.113.20', 'quote-one', now + 1_000)
+  now += 1_001
+  assert.doesNotThrow(() => guard.acquireRun('203.0.113.20', 'quote-two', now + 1_000))
+})
+
+test('pre-payment failures release visitor quota but paid runs remain counted', () => {
+  const strict = { ...limits, perIpRunsPerHour: 1 }
+  const refunded = new HostedAgentGuard(strict)
+  refunded.acquireRun('203.0.113.21', 'failed-prepare', Date.now() + 60_000)
+  refunded.releaseRun('failed-prepare', true)
+  assert.doesNotThrow(() => refunded.acquireRun('203.0.113.21', 'retry', Date.now() + 60_000))
+
+  const paid = new HostedAgentGuard(strict)
+  paid.acquireRun('203.0.113.22', 'paid-run', Date.now() + 60_000)
+  paid.releaseRun('paid-run')
+  assert.throws(() => paid.acquireRun('203.0.113.22', 'second-paid-run', Date.now() + 60_000),
+    /Too many hosted-agent runs/)
+})
