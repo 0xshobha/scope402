@@ -61,7 +61,9 @@ export type DemoActionResult = {
 
 type PreparedRun = { run: DemoRun; run_token: string }
 
-const demoAgentBase = import.meta.env.VITE_DEMO_AGENT_URL || '/demo-agent'
+export const publicDemoAgentUrl = 'https://scope402-demo-agent.onrender.com'
+const demoAgentBase = import.meta.env.VITE_DEMO_AGENT_URL ||
+  (import.meta.env.DEV ? '/demo-agent' : publicDemoAgentUrl)
 
 function endpoint(path: string) {
   return demoAgentBase.startsWith('http') ? new URL(path, demoAgentBase).href : `${demoAgentBase}${path}`
@@ -109,5 +111,3 @@ export async function executeDemoAction(runId: string, token: string, action: De
   })
   return readResponse<DemoActionResult>(response)
 }
-
-export const publicDemoAgentUrl = 'https://scope402-demo-agent.onrender.com'

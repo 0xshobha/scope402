@@ -16,7 +16,8 @@ export type LiveState = {
   message?: string
 }
 
-const apiBase = import.meta.env.VITE_AUDITLAB_URL || '/auditlab'
+export const publicApiUrl = 'https://scope402-auditlab.onrender.com'
+const apiBase = import.meta.env.VITE_AUDITLAB_URL || (import.meta.env.DEV ? '/auditlab' : publicApiUrl)
 
 function endpoint(path: string) {
   return apiBase.startsWith('http') ? new URL(path, apiBase).href : `${apiBase}${path}`
@@ -57,5 +58,3 @@ export async function loadLiveState(): Promise<LiveState> {
   return { state: timedOut ? 'waking' : 'offline', health, contract: contractState, latencyMs,
     message: timedOut ? 'Service may be waking; retrying automatically' : 'Network or local proxy unavailable' }
 }
-
-export const publicApiUrl = 'https://scope402-auditlab.onrender.com'

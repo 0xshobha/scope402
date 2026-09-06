@@ -107,8 +107,13 @@ export type TesseraActionResult = {
   pixel?: { canvas_id: string; x: number; y: number; color: string; updated_at: number }
 }
 
-const agentBase = import.meta.env.VITE_TESSERA_AGENT_URL || import.meta.env.VITE_DEMO_AGENT_URL || '/demo-agent'
-const apiBase = import.meta.env.VITE_TESSERA_API_URL || '/auditlab'
+export const publicTesseraAgentUrl =
+  import.meta.env.VITE_TESSERA_AGENT_URL || 'https://scope402-demo-agent.onrender.com'
+export const publicTesseraApiUrl =
+  import.meta.env.VITE_TESSERA_API_URL || 'https://scope402-auditlab.onrender.com'
+const agentBase = import.meta.env.VITE_TESSERA_AGENT_URL || import.meta.env.VITE_DEMO_AGENT_URL ||
+  (import.meta.env.DEV ? '/demo-agent' : publicTesseraAgentUrl)
+const apiBase = import.meta.env.VITE_TESSERA_API_URL || (import.meta.env.DEV ? '/auditlab' : publicTesseraApiUrl)
 type PreparedRun = { run: TesseraRun; run_token: string }
 
 function endpoint(base: string, path: string) {
@@ -190,7 +195,3 @@ export async function getTesseraCanvas() {
   })
   return readResponse<TesseraCanvas>(response)
 }
-
-export const publicTesseraAgentUrl =
-  import.meta.env.VITE_TESSERA_AGENT_URL || 'https://scope402-demo-agent.onrender.com'
-export const publicTesseraApiUrl = import.meta.env.VITE_TESSERA_API_URL || 'https://scope402-auditlab.onrender.com'

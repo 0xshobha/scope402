@@ -110,8 +110,11 @@ test('Tessera enforces canvas authority and pixel mutation atomically', async (t
   })
 
   await t.test('GET /v1/canvas returns empty server-authoritative state', async () => {
-    const response = await app.request('/v1/canvas')
+    const response = await app.request('/v1/canvas', {
+      headers: { Origin: 'https://scope402.onrender.com' },
+    })
     assert.equal(response.status, 200)
+    assert.equal(response.headers.get('access-control-allow-origin'), '*')
     const canvas = await response.json()
     assert.equal(canvas.canvas_id, 'main')
     assert.equal(canvas.width, 32)

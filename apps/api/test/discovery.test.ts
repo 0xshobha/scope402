@@ -4,10 +4,13 @@ import { app } from '../src/app.js'
 import { auditLabDiscovery } from '../src/discovery.js'
 
 test('publishes the AuditLab paid resource and leased tool', async () => {
-  const response = await app.request('/.well-known/scope402')
+  const response = await app.request('/.well-known/scope402', {
+    headers: { Origin: 'https://scope402.onrender.com' },
+  })
   assert.equal(response.status, 200)
   assert.match(response.headers.get('content-type') ?? '', /^application\/json\b/)
   assert.equal(response.headers.get('cache-control'), 'public, max-age=300')
+  assert.equal(response.headers.get('access-control-allow-origin'), '*')
   assert.deepEqual(await response.json(), auditLabDiscovery)
   assert.deepEqual(auditLabDiscovery.resources.repository_scan,
     { method: 'POST', path: '/v1/scans' })

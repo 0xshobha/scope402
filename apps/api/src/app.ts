@@ -1,4 +1,5 @@
 import { Hono } from 'hono'
+import { cors } from 'hono/cors'
 import { auditLabDiscovery } from './discovery.js'
 import { delegations } from './delegations.js'
 import { leaseControls } from './lease-controls.js'
@@ -9,6 +10,11 @@ import { tesseraTools } from './merchants/tessera/tools.js'
 import { tools } from './tools.js'
 
 export const app = new Hono()
+
+const publicReadCors = cors({ origin: '*', allowMethods: ['GET', 'OPTIONS'] })
+app.use('/health', publicReadCors)
+app.use('/.well-known/scope402', publicReadCors)
+app.use('/v1/canvas', publicReadCors)
 
 app.get('/health', (c) => c.json({ ok: true, service: 'auditlab' }))
 app.get('/.well-known/scope402', (c) => {
