@@ -86,8 +86,8 @@ with exact transactions and outcomes recorded below.
 A public-origin run against `sindresorhus/is` completed payment, scanning, lease issuance, an authorized
 follow-up, wrong-key denial, byte-identical replay denial, and server-side expiry denial.
 
-- Transaction: `0.0.7162784@1788595940.223982333`
-- [HashScan](https://hashscan.io/testnet/transaction/0.0.7162784-1788595940-223982333)
+- Transaction: `0.0.7162784@1788672696.168914659`
+- [HashScan](https://hashscan.io/testnet/transaction/0.0.7162784-1788672696-168914659)
 - Payer: `0.0.10374937`
 - Merchant: `0.0.8258555`
 - Amount: `55500` tinybars (`0.000555 HBAR`)
@@ -101,12 +101,12 @@ credit. The public hosted-agent path returned `200 FINDING_DETAILS_ALLOWED`, `40
 A public Tessera run purchased an `8 × 8`, 12-call root capability, delegated a contained `4 × 4`, one-call
 capability to a different P-256 worker, committed one in-scope pixel, and rejected boundary violations.
 
-- Transaction: `0.0.7162784@1788633466.792422734`
-- [HashScan](https://hashscan.io/testnet/transaction/0.0.7162784-1788633466-792422734)
+- Transaction: `0.0.7162784@1788672630.715449934`
+- [HashScan](https://hashscan.io/testnet/transaction/0.0.7162784-1788672630-715449934)
 - Payer: `0.0.10374937`
 - Merchant: `0.0.8258555`
 - Amount: `56000` tinybars (`0.00056 HBAR`)
-- Root policy hash: `sha256:38b5df196467cfe41b65ea2204dfc7f847c089263d167d6eb72d72e174c6c89d`
+- Root policy hash: `sha256:6296a9fb395ad12c956f9dc3556588e62b0985d6bf629ea9dea82ec90d702a24`
 
 Mirror Node reports `SUCCESS` / `CRYPTOTRANSFER`, the 56,000-tinybar payer debit, and matching merchant
 credit. The hosted path returned `200 CAPABILITY_DELEGATED`, `403 OUT_OF_SCOPE`,
@@ -196,4 +196,7 @@ immutable lineage, root expiry, budget conservation, and concurrent invocation/d
 
 ## AI assistance
 
-AI tools assisted with research, implementation, and review. Every claimed payment, deployment, scan, and authorization result above was exercised against the named live or testnet boundary; local tests are described separately from public proof.
+AI tools assisted with research, implementation, testing, and review under human direction. They are not a
+runtime dependency or a source of evidence. Every claimed payment, deployment, scan, and authorization result
+above was exercised against the named live or testnet boundary; local tests are described separately from
+public proof. See the concise [AI-assisted development disclosure](docs/ai/README.md).
