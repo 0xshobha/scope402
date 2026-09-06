@@ -134,6 +134,28 @@ export async function settledRedemption(transactionId: string, quoteId: string) 
   return row.receipt as { success: true; network: 'hedera:testnet'; transaction: string; payer?: string }
 }
 
+export async function ambiguousRedemption(transactionId: string, quoteId: string) {
+  assertQuoteId(quoteId)
+  const result = await database().query(
+    `SELECT redemption.quote_id, redemption.status, redemption.payer, quote.requirements
+     FROM payment_redemptions AS redemption
+     JOIN payment_quotes AS quote ON quote.quote_id = redemption.quote_id
+     WHERE redemption.transaction_id = $1`,
+    [transactionId],
+  )
+  if (result.rowCount === 0) return undefined
+  const row = result.rows[0]
+  if (row.quote_id !== quoteId) {
+    throw new PaymentError('PAYMENT_REQUIREMENTS_MISMATCH', 'Transaction belongs to another quote')
+  }
+  if (!['settlement_attempted', 'settlement_unknown'].includes(String(row.status))) return undefined
+  if (typeof row.payer !== 'string' || !/^\d+\.\d+\.[1-9]\d*$/.test(row.payer)) {
+    throw new PaymentError('PAYMENT_STATE_ERROR', 'Ambiguous settlement has no valid payer')
+  }
+  return { payer: row.payer as string,
+    requirements: PaymentRequirementsV2Schema.parse(row.requirements) as PaymentRequirements }
+}
+
 export function assertQuotedPayment(payload: { accepted: unknown; resource?: { url: string } },
   quote: { requirements: PaymentRequirements; resourceUrl: string }) {
   if (!isDeepStrictEqual(payload.accepted, quote.requirements) || payload.resource?.url !== quote.resourceUrl) {
@@ -182,4 +204,19 @@ export async function markSettlement(transactionId: string,
     )
     if (result.rowCount !== 1) throw new PaymentError('PAYMENT_STATE_ERROR', 'Payment state changed unexpectedly')
   })
+}
+
+export async function markReconciledSettlement(transactionId: string, receipt: unknown) {
+  const result = await database().query(
+    `UPDATE payment_redemptions SET status = 'settled', receipt = $2, updated_at = now()
+     WHERE transaction_id = $1 AND status IN ('settlement_attempted', 'settlement_unknown')`,
+    [transactionId, JSON.stringify(receipt ?? null)],
+  )
+  if (result.rowCount !== 1) {
+    const recovered = await database().query(
+      `SELECT status FROM payment_redemptions WHERE transaction_id = $1`, [transactionId])
+    if (recovered.rowCount !== 1 || recovered.rows[0].status !== 'settled') {
+      throw new PaymentError('PAYMENT_STATE_ERROR', 'Payment state changed during reconciliation')
+    }
+  }
 }

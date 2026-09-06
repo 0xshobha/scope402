@@ -5,6 +5,7 @@ import { closeDatabase, database, initializeDatabase } from '../src/db.js'
 import { abandonVerification, beginRedemption, createQuote, loadQuote,
   markSettlement, markSettlementAttempted, type Pricing } from '../src/payments.js'
 import { scope402Extension, scope402PolicyHash, type Scope402Policy } from '../src/scope-extension.js'
+import { reconcileAmbiguousRedemption } from '../src/settlement.js'
 
 const requirements: PaymentRequirements = {
   scheme: 'exact', network: 'hedera:testnet', asset: '0.0.0', amount: '50500',
@@ -70,4 +71,41 @@ test('persists bound quotes and redemption state', async (t) => {
   await abandonVerification(tx)
   assert.equal((await database().query(
     'SELECT status FROM payment_redemptions WHERE transaction_id = $1', [tx])).rows[0].status, 'settled')
+})
+
+test('recovers a persisted ambiguous settlement from Hedera without settling again', async (t) => {
+  await initializeDatabase()
+  const originalFetch = globalThis.fetch
+  t.after(async () => {
+    globalThis.fetch = originalFetch
+    await database().query('DELETE FROM payment_redemptions; DELETE FROM payment_quotes')
+    await closeDatabase()
+  })
+  const quote = await createQuote('https://github.com/0xshobha/scope402', 'subject',
+    'http://127.0.0.1:3000/v1/scans', requirements, snapshot, pricing,
+    scope402Extension('subject', snapshot, 'http://127.0.0.1:3000/v1/tools'))
+  const tx = '0.0.7162784@1700000000.123456789'
+  const payer = '0.0.8258066'
+  await beginRedemption(tx, quote.quoteId)
+  await markSettlementAttempted(tx, payer)
+  await markSettlement(tx, 'settlement_unknown', { error: 'facilitator response lost' })
+  let mirrorCalls = 0
+  globalThis.fetch = (async (input) => {
+    mirrorCalls += 1
+    assert.match(String(input), /mirrornode\.hedera\.com\/api\/v1\/transactions\//)
+    return new Response(JSON.stringify({ transactions: [{
+      transaction_id: '0.0.7162784-1700000000-123456789', result: 'SUCCESS',
+      name: 'CRYPTOTRANSFER', transfers: [
+        { account: payer, amount: -50500 }, { account: requirements.payTo, amount: 50500 },
+      ],
+    }] }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+  }) as typeof fetch
+  assert.deepEqual(await reconcileAmbiguousRedemption(tx, quote.quoteId), {
+    success: true, network: 'hedera:testnet', transaction: tx, payer,
+  })
+  assert.equal(mirrorCalls, 1)
+  const stored = await database().query(
+    'SELECT status, receipt FROM payment_redemptions WHERE transaction_id = $1', [tx])
+  assert.equal(stored.rows[0].status, 'settled')
+  assert.equal(stored.rows[0].receipt.transaction, tx)
 })

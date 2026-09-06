@@ -10,8 +10,9 @@ import { assertPaymentAmount as assertOfferAmount, merchantConfig, paymentRequir
 import { settledPaymentDetails } from './payment-receipt.js'
 import { assertQuotedPayment, createQuote, loadQuote, settledRedemption, type Pricing } from './payments.js'
 import { quoteRateLimiter } from './quote-rate-limit.js'
+import { quoteClientIdentity } from './client-ip.js'
 import { fulfillPaidScan, ScanJobError } from './scan-jobs.js'
-import { paymentTransactionId, settlePayment } from './settlement.js'
+import { paymentTransactionId, reconcileAmbiguousRedemption, settlePayment } from './settlement.js'
 import { assertScope402Echo, scope402Extension } from './scope-extension.js'
 import { assertP256Subject } from './scope402/subject.js'
 
@@ -97,7 +98,8 @@ scans.post('/', async (c) => {
     if (payload) {
       const quoteId = c.req.query('quote_id') ?? ''
       const transactionId = paymentTransactionId(payload)
-      const recovered = await settledRedemption(transactionId, quoteId)
+      const recovered = await reconcileAmbiguousRedemption(transactionId, quoteId) ??
+        await settledRedemption(transactionId, quoteId)
       const quote = await loadQuote(quoteId, request.repo_url, request.subject_pubkey, Boolean(recovered))
       if (!quote.scope402Extension) {
         throw new PaymentError('QUOTE_EXPIRED', 'Quote predates persisted Scope402 policy; request a new quote')
@@ -123,8 +125,10 @@ scans.post('/', async (c) => {
     } catch (error) {
       return c.json({ error: 'PAYMENT_NOT_CONFIGURED', message: (error as Error).message }, 503)
     }
-    const forwarded = c.req.header('x-forwarded-for')?.split(',')[0]?.trim()
-    const rate = quoteRateLimiter.take(forwarded || c.req.header('x-real-ip') || 'unknown')
+    const rate = quoteRateLimiter.take(quoteClientIdentity({
+      cloudflare: c.req.header('cf-connecting-ip'), forwarded: c.req.header('x-forwarded-for'),
+      real: c.req.header('x-real-ip'),
+    }))
     if (!rate.allowed) {
       c.header('Retry-After', String(rate.retryAfterSeconds))
       return c.json({ error: 'QUOTE_RATE_LIMITED',

@@ -13,9 +13,10 @@ import { PaymentError } from './payment-error.js'
 import { assertPaymentAmount, merchantConfig, paymentRequired } from './payment-offer.js'
 import { assertQuotedPayment, settledRedemption } from './payments.js'
 import { quoteRateLimiter } from './quote-rate-limit.js'
+import { quoteClientIdentity } from './client-ip.js'
 import { assertScope402Echo } from './scope-extension.js'
 import { assertP256Subject } from './scope402/subject.js'
-import { paymentTransactionId, settleBegunPayment } from './settlement.js'
+import { paymentTransactionId, reconcileAmbiguousRedemption, settleBegunPayment } from './settlement.js'
 
 export type PlotRequest = { canvas_id: string; subject_pubkey: string }
 
@@ -79,7 +80,8 @@ plots.post('/', async (c) => {
     if (payload) {
       const quoteId = c.req.query('quote_id') ?? ''
       const transactionId = paymentTransactionId(payload)
-      const recovered = await settledRedemption(transactionId, quoteId)
+      const recovered = await reconcileAmbiguousRedemption(transactionId, quoteId) ??
+        await settledRedemption(transactionId, quoteId)
       const quote = await loadPlotQuote(quoteId, request.canvas_id, request.subject_pubkey,
         Boolean(recovered))
       assertQuotedPayment(payload, quote)
@@ -100,8 +102,10 @@ plots.post('/', async (c) => {
     } catch (error) {
       return c.json({ error: 'PAYMENT_NOT_CONFIGURED', message: (error as Error).message }, 503)
     }
-    const forwarded = c.req.header('x-forwarded-for')?.split(',')[0]?.trim()
-    const rate = quoteRateLimiter.take(forwarded || c.req.header('x-real-ip') || 'unknown')
+    const rate = quoteRateLimiter.take(quoteClientIdentity({
+      cloudflare: c.req.header('cf-connecting-ip'), forwarded: c.req.header('x-forwarded-for'),
+      real: c.req.header('x-real-ip'),
+    }))
     if (!rate.allowed) {
       c.header('Retry-After', String(rate.retryAfterSeconds))
       return c.json({ error: 'QUOTE_RATE_LIMITED',
