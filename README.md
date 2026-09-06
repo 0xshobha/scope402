@@ -23,25 +23,21 @@ Public web: [scope402.onrender.com](https://scope402.onrender.com)
 An x402 settlement proves that money moved. It does not decide what the buyer may do afterward. Scope402
 connects the purchase to limited permission while keeping payment and authorization separate:
 
-```text
-Scope402 Agent                 AuditLab                     Hedera
-      |                           |                            |
-      | POST /v1/scans           |                            |
-      |-------------------------->|                            |
-      | 402 PAYMENT-REQUIRED     |                            |
-      |<--------------------------|                            |
-      |                           |                            |
-      | PAYMENT-SIGNATURE        | verify + settle via        |
-      |-------------------------->| Blocky402 ---------------->|
-      |                           |                            |
-      |              scan repository at an exact commit       |
-      |              issue P-256 subject-bound ToolLease      |
-      |<-------------------------------------------------------|
-      |                           |                            |
-      | signed finding_details   |                            |
-      |-------------------------->| atomic counter + budget    |
-      | finding                  | enforcement in PostgreSQL  |
-      |<--------------------------|                            |
+```mermaid
+flowchart LR
+  UI["Browser<br/>no private keys"] -->|"prepare, approve, fixed actions"| A["Scope402 agent<br/>payer + P-256 subjects"]
+  A -->|"unpaid request"| API["Merchant API<br/>Scope402 kernel"]
+  API -->|"402 + price + capability policy H"| A
+  A -->|"validate H + PAYMENT-SIGNATURE"| API
+  API --> B["Blocky402"] --> H["Hedera testnet<br/>native HBAR"]
+  H --> HS["HashScan / Mirror Node proof"]
+  API --> M{"Useful work"}
+  M --> G["AuditLab<br/>exact GitHub commit"]
+  M --> T["Tessera<br/>bounded canvas region"]
+  API -->|"root capability, same policy H"| A
+  A -->|"signed attenuation"| W["Worker<br/>narrower subject, resource, budget, expiry"]
+  W -->|"signed invocation"| API
+  API --> DB[("PostgreSQL<br/>atomic counter, budget, expiry<br/>and merchant mutation")]
 ```
 
 The browser is not trusted with either the Hedera payer key or the subject private key. The payer is a separate Node.js process. The merchant never pays itself.
