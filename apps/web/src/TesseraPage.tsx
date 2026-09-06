@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   approveTesseraRun, createTesseraRun, executeTesseraAction, getTesseraAgentHealth,
   getTesseraCanvas, getTesseraRun,
@@ -136,8 +136,9 @@ export function TesseraPage() {
   const [busy, setBusy] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const [agentHealth, setAgentHealth] = useState<'CHECKING' | 'ONLINE' | 'UNAVAILABLE'>('CHECKING')
+  const [agentHealth, setAgentHealth] = useState<'CHECKING' | 'WAKING' | 'ONLINE' | 'UNAVAILABLE'>('CHECKING')
   const [canvasHealth, setCanvasHealth] = useState<'CHECKING' | 'ONLINE' | 'UNAVAILABLE'>('CHECKING')
+  const agentProbeFailures = useRef(0)
 
   const resetRun = () => {
     window.sessionStorage.removeItem(storedRunId)
@@ -171,7 +172,13 @@ export function TesseraPage() {
     const probe = async () => {
       const [agent, board] = await Promise.allSettled([getTesseraAgentHealth(), getTesseraCanvas()])
       if (cancelled) return
-      setAgentHealth(agent.status === 'fulfilled' ? 'ONLINE' : 'UNAVAILABLE')
+      if (agent.status === 'fulfilled') {
+        agentProbeFailures.current = 0
+        setAgentHealth('ONLINE')
+      } else {
+        agentProbeFailures.current += 1
+        setAgentHealth(agentProbeFailures.current >= 3 ? 'UNAVAILABLE' : 'WAKING')
+      }
       if (board.status === 'fulfilled') { setCanvas(board.value); setCanvasHealth('ONLINE') }
       else setCanvasHealth('UNAVAILABLE')
       const healthy = agent.status === 'fulfilled' && board.status === 'fulfilled'
@@ -185,7 +192,6 @@ export function TesseraPage() {
       void getTesseraRun(storedId, storedToken).then((restored) => {
         setRun(restored); setAgentHealth('ONLINE')
       }).catch(() => {
-        setAgentHealth('UNAVAILABLE')
         window.sessionStorage.removeItem(storedRunId)
         window.sessionStorage.removeItem(storedRunToken)
         setRunId(''); setToken('')
@@ -260,7 +266,8 @@ export function TesseraPage() {
   const completed = new Set(run?.actions.map((item) => item.action) ?? [])
   const action = run?.last_action
   const state = run?.state ?? 'READY'
-  const agentDot = agentHealth === 'ONLINE' ? 'online' : agentHealth === 'CHECKING' ? 'waking' : 'offline'
+  const agentDot = agentHealth === 'ONLINE' ? 'online' :
+    ['CHECKING', 'WAKING'].includes(agentHealth) ? 'waking' : 'offline'
 
   return <main className="tessera-shell">
     <header className="site-header"><a className="brand" href="/">SCOPE<span>402</span></a>
@@ -274,7 +281,8 @@ export function TesseraPage() {
         <div className="tessera-hero-actions"><button className="button primary" type="button" onClick={start}
           disabled={loading || Boolean(runId) || agentHealth !== 'ONLINE'}>
           {loading ? 'CONTACTING AGENT…' : runId ? 'RUN IN PROGRESS' :
-            agentHealth === 'UNAVAILABLE' ? 'TESSERA AGENT UPDATE REQUIRED' :
+            agentHealth === 'UNAVAILABLE' ? 'TESSERA AGENT UNAVAILABLE' :
+            agentHealth === 'WAKING' ? 'WAKING TESSERA AGENT…' :
             agentHealth === 'CHECKING' ? 'CHECKING TESSERA AGENT…' : 'START REAL TESSERA RUN'}</button>
           {runId && (state === 'COMPLETE' || state === 'FAILED' || error.includes('DEMO_RUN_EXPIRED')) &&
             <button className="button" type="button" onClick={resetRun}>START NEW RUN</button>}
