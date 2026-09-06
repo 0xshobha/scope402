@@ -84,6 +84,8 @@ export type TesseraCanvas = {
     lease_id: string
     expires_at: number
     remaining_calls: number
+    active: boolean
+    status: 'active' | 'expired'
   }>
 }
 

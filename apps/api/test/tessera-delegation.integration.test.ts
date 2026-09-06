@@ -158,6 +158,12 @@ test('Tessera delegates attenuated capabilities with conserved authority', async
       delegated.lease as TesseraLeaseClaims & { token: string }, 2))
     assert.equal(exhausted.status, 403)
     assert.equal((await exhausted.json()).error, 'BUDGET_EXHAUSTED')
+    const canvas = await (await app.request('/v1/canvas')).json()
+    const region = canvas.regions.find((item: { lease_id: string }) =>
+      item.lease_id === root.lease.lease_id)
+    assert.equal(region.remaining_calls, 10)
+    assert.equal(region.active, true)
+    assert.equal(region.status, 'active')
   })
 
   await t.test('wider, later, cross-canvas, and extra-tool children are denied without reservation', async () => {

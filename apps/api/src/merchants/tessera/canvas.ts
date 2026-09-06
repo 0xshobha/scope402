@@ -15,7 +15,8 @@ tesseraCanvas.get('/', async (c) => {
       database().query(
         `SELECT slot.slot, job.lease_id,
                 extract(epoch from lease.expires_at)::bigint AS expires_at,
-                lease.max_calls - lease.used_calls AS remaining_calls
+                lease.max_calls - lease.used_calls - lease.reserved_calls AS remaining_calls,
+                lease.expires_at > now() AS active
          FROM tessera_slots AS slot
          JOIN plot_jobs AS job ON job.quote_id = slot.quote_id AND job.status = 'complete'
          JOIN tool_leases AS lease ON lease.lease_id = job.lease_id
@@ -31,7 +32,8 @@ tesseraCanvas.get('/', async (c) => {
         color: String(row.color), updated_at: Number(row.updated_at) })),
       regions: regions.rows.map((row) => ({ slot: Number(row.slot),
         ...rootCanvasRegion(Number(row.slot)), lease_id: String(row.lease_id),
-        expires_at: Number(row.expires_at), remaining_calls: Number(row.remaining_calls) })) })
+        expires_at: Number(row.expires_at), remaining_calls: Number(row.remaining_calls),
+        active: Boolean(row.active), status: row.active ? 'active' : 'expired' })) })
   } catch (error) {
     console.error(`Tessera canvas read failed: ${error instanceof Error ? error.message : 'unknown error'}`)
     return c.json({ error: 'CANVAS_UNAVAILABLE', message: 'Canvas state is temporarily unavailable' }, 503)

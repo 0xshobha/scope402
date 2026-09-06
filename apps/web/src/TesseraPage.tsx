@@ -116,7 +116,7 @@ function CanvasPanel({ canvas, run, action }: {
       <span className="mono canvas-size">32 × 32</span></div>
     <div className="canvas-wrap"><div className="canvas-grid">{cells}</div></div>
     <div className="canvas-key mono"><span><i className="root-key" />ROOT REGION</span><span><i className="child-key" />CHILD REGION</span><span><i className="pixel-key" />SERVER PIXEL</span></div>
-    {canvas ? <p className="canvas-note mono">POLLING SERVER STATE · {canvas.pixels.length} PIXELS · {canvas.regions.length} ALLOCATED REGIONS</p> :
+    {canvas ? <p className="canvas-note mono">POLLING SERVER STATE · {canvas.pixels.length} PIXELS · {canvas.regions.filter((region) => region.active).length} ACTIVE / {canvas.regions.length} HISTORICAL REGIONS</p> :
       <p className="canvas-note mono">WAITING FOR CANVAS STATE</p>}
     {action && <div className={`tessera-action-result ${action.verdict.toLowerCase()}`} role="status">
       <strong className="mono">{action.status} · {action.code}</strong><span>{action.message}</span>
@@ -146,7 +146,7 @@ export function TesseraPage() {
   const [busy, setBusy] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const [agentHealth, setAgentHealth] = useState<'CHECKING' | 'WAKING' | 'ONLINE' | 'UNAVAILABLE'>('CHECKING')
+  const [agentHealth, setAgentHealth] = useState<'CHECKING' | 'WAKING' | 'ONLINE' | 'RETRYING'>('CHECKING')
   const [canvasHealth, setCanvasHealth] = useState<'CHECKING' | 'ONLINE' | 'UNAVAILABLE'>('CHECKING')
   const agentProbeFailures = useRef(0)
 
@@ -187,7 +187,7 @@ export function TesseraPage() {
         setAgentHealth('ONLINE')
       } else {
         agentProbeFailures.current += 1
-        setAgentHealth(agentProbeFailures.current >= 3 ? 'UNAVAILABLE' : 'WAKING')
+        setAgentHealth(agentProbeFailures.current >= 3 ? 'RETRYING' : 'WAKING')
       }
       if (board.status === 'fulfilled') { setCanvas(board.value); setCanvasHealth('ONLINE') }
       else setCanvasHealth('UNAVAILABLE')
@@ -276,8 +276,7 @@ export function TesseraPage() {
   const completed = new Set(run?.actions.map((item) => item.action) ?? [])
   const action = run?.last_action
   const state = run?.state ?? 'READY'
-  const agentDot = agentHealth === 'ONLINE' ? 'online' :
-    ['CHECKING', 'WAKING'].includes(agentHealth) ? 'waking' : 'offline'
+  const agentDot = agentHealth === 'ONLINE' ? 'online' : 'waking'
 
   return <main className="tessera-shell">
     <header className="site-header"><a className="brand" href="/">SCOPE<span>402</span></a>
@@ -289,9 +288,9 @@ export function TesseraPage() {
       <h1>The canvas is the instrument.<br/><em>The lease is the product.</em></h1></div>
       <div className="tessera-hero-copy"><p>A guarded hosted agent buys one real 8 × 8 root capability, delegates a contained worker capability, and asks the server to prove every boundary.</p>
         <div className="tessera-hero-actions"><button className="button primary" type="button" onClick={start}
-          disabled={loading || Boolean(runId) || agentHealth !== 'ONLINE'}>
+          disabled={loading || Boolean(runId) || ['CHECKING', 'WAKING'].includes(agentHealth)}>
           {loading ? 'CONTACTING AGENT…' : runId ? 'RUN IN PROGRESS' :
-            agentHealth === 'UNAVAILABLE' ? 'TESSERA AGENT UNAVAILABLE' :
+            agentHealth === 'RETRYING' ? 'RETRY & PREPARE QUOTE' :
             agentHealth === 'WAKING' ? 'WAKING TESSERA AGENT…' :
             agentHealth === 'CHECKING' ? 'CHECKING TESSERA AGENT…' : 'PREPARE REAL TESSERA QUOTE'}</button>
           {runId && (state === 'COMPLETE' || state === 'FAILED' || error.includes('DEMO_RUN_EXPIRED')) &&
