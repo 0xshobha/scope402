@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { approveDemoRun, executeDemoAction, getDemoRun, prepareDemoRun, publicDemoAgentUrl,
   type DemoActionName, type DemoActionResult, type DemoRun } from './demo-api.js'
 
-const steps = ['READY', 'PAYMENT REQUIRED', 'AGENT ACTION', 'SETTLED', 'SCAN COMPLETE', 'LEASE ACTIVE']
+const steps = ['CHOOSE REPO', 'SEE TERMS', 'AGENT PAYS', 'PAYMENT CONFIRMED', 'SCAN FINISHED', 'PERMISSION READY']
 const storedRunId = 'scope402-demo-run-id'
 const storedRunToken = 'scope402-demo-run-token'
 
@@ -142,15 +142,15 @@ export function DemoPage() {
   return <main className="demo-shell">
     <header className="site-header">
       <a className="brand" href="/">SCOPE<span>402</span></a>
-      <nav aria-label="Demo navigation"><a href="/">THE IDEA</a><a href="/tessera">TESSERA</a></nav>
+      <nav aria-label="Demo navigation"><a href="/">HOME</a><a href="/tessera">CANVAS DEMO</a></nav>
       <div className="mode"><span className="status-dot online" /> DEMO AGENT · TESTNET</div>
     </header>
 
     <section className="demo-hero">
-      <div><span className="section-label">LIVE PURCHASE CONTROL ROOM</span>
-        <h1>Pay for work.<br/><em>Keep authority narrow.</em></h1></div>
-      <p>The browser asks a dedicated testnet agent to buy one repository scan. The agent validates the quote
-        and signs independently. Payment and capability keys never enter this page.</p>
+      <div><span className="section-label">LIVE REPOSITORY DEMO</span>
+        <h1>Pay for a scan.<br/><em>Keep access limited.</em></h1></div>
+      <p>Paste a public GitHub repository. You will see the price and limits before the demo agent pays,
+        then watch valid access succeed while stolen, replayed, and expired access fails.</p>
     </section>
 
     <ol className="demo-state-rail" aria-label="Live demo progress">
@@ -160,27 +160,27 @@ export function DemoPage() {
 
     <section className="demo-grid">
       <div className="demo-control">
-        <span className="section-label">01 · PREPARE</span>
-        <h2>Choose public work.</h2>
+        <span className="section-label">01 · CHOOSE A REPOSITORY</span>
+        <h2>Paste a public GitHub repo.</h2>
         <form onSubmit={prepare}>
           <label htmlFor="repo-url">PUBLIC GITHUB REPOSITORY</label>
           <input id="repo-url" type="url" required value={repoUrl} onChange={(event) => setRepoUrl(event.target.value)}
             placeholder="https://github.com/owner/repository" disabled={preparing || settling} />
           <button className="button primary" type="submit" disabled={preparing || settling}>
-            {preparing ? 'REQUESTING REAL 402…' : 'REQUEST METERED QUOTE'}
+            {preparing ? 'GETTING PRICE & TERMS…' : 'SEE PRICE & TERMS'}
           </button>
         </form>
         <div className="agent-boundary">
-          <strong>HOSTED DEMO AGENT</strong>
-          <span>Hedera testnet only</span><span>Known merchant only</span><span>Maximum 150,000 tinybars</span>
+          <strong>SAFE DEMO PAYMENT</strong>
+          <span>Hedera testnet only</span><span>AuditLab only</span><span>Hard spend limit: 150,000 tinybars</span>
         </div>
         {error && <div className="demo-error" role="alert"><strong>RUN STOPPED</strong><code>{error}</code></div>}
       </div>
 
       <div className={`quote-panel ${run ? 'visible' : ''}`} aria-live="polite">
         {!run ? <div className="empty-quote"><span className="mono">402</span>
-          <p>The real quote appears here before any HBAR moves.</p></div> : <>
-          <div className="quote-title"><span className="section-label">02 · PAYMENT REQUIRED</span>
+          <p>No payment yet. The exact price and permission limits will appear here first.</p></div> : <>
+          <div className="quote-title"><span className="section-label">02 · REVIEW BEFORE PAYMENT</span>
             <span className="quote-status">REAL 402</span></div>
           <h2>{run.quote.repository}</h2>
           <dl className="quote-facts">
@@ -202,7 +202,7 @@ export function DemoPage() {
     {run?.result && <section className="run-result">
       <article className="settlement-card">
         <div className="result-label"><span>SETTLED</span><b className="mono">200</b></div>
-        <h2>Money moved.</h2>
+        <h2>Payment confirmed.</h2>
         <dl>
           <div><dt>AMOUNT</dt><dd className="mono">{Number(run.result.payment.amount_tinybars).toLocaleString()} tinybars</dd></div>
           <div><dt>PAYER</dt><dd className="mono">{run.result.payment.payer}</dd></div>
@@ -215,7 +215,7 @@ export function DemoPage() {
 
       <article className="scan-card">
         <div className="result-label"><span>SCAN COMPLETE</span><b className="mono">{run.result.findings.length}</b></div>
-        <h2>{run.result.findings.length ? 'Finding returned.' : 'No finding returned.'}</h2>
+        <h2>{run.result.findings.length ? 'Repository checked.' : 'Scan finished clean.'}</h2>
         {run.result.findings.length ? <div className="finding-list">{run.result.findings.map((finding) =>
           <div key={finding.id}><span className="mono">{finding.severity.toUpperCase()}</span><strong>{finding.message}</strong>
             <code>{finding.id}</code></div>)}</div> :
@@ -224,23 +224,23 @@ export function DemoPage() {
 
       <article className="result-lease-card">
         <div className="result-label"><span>LEASE ACTIVE</span><b><LeaseCountdown exp={run.result.lease.exp} /></b></div>
-        <h2>Authority has edges.</h2>
+        <h2>Your permission is limited.</h2>
         <dl>
           <div><dt>ALLOWED TOOL</dt><dd className="mono">{run.result.lease.tool_ids.join(', ')}</dd></div>
           <div><dt>CALL BUDGET</dt><dd className="mono">{run.result.lease.remaining_calls} / {run.result.lease.max_calls}</dd></div>
           <div><dt>SUBJECT</dt><dd className="mono" title={run.result.lease.subject_pubkey}>{short(run.result.lease.subject_pubkey)}</dd></div>
           <div><dt>LEASE ID</dt><dd className="mono">{short(run.result.lease.lease_id)}</dd></div>
         </dl>
-        <p>The hosted agent retains the subject key and lease token. They are deliberately absent from browser responses.</p>
+        <p>The demo agent keeps the signing key and permission token. This browser never receives either one.</p>
       </article>
     </section>}
 
     {run?.result && <section className="capability-lab">
       <div className="capability-intro">
-        <span className="section-label">THE PROOF IS IN THE NO</span>
-        <h2>Use it once.<br/>Then try to break it.</h2>
-        <p>The hosted agent keeps every key and token private. These controls request fixed actions;
-          the browser cannot supply a signature, counter, lease, destination, or payment field.</p>
+        <span className="section-label">PROVE THE LIMITS</span>
+        <h2>Use it correctly.<br/>Then test misuse.</h2>
+        <p>Run one allowed request, then try a stolen key, the same request twice, and an expired permission.
+          Every result below comes from the API.</p>
       </div>
       {!run.result.findings.length ? <div className="clean-capability">
         <strong className="mono">SCAN_CLEAN</strong>

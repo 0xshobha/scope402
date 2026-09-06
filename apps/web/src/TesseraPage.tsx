@@ -10,9 +10,9 @@ import {
 const storedRunId = 'scope402-tessera-run-id'
 const storedRunToken = 'scope402-tessera-run-token'
 const actionLabels: Record<TesseraActionName, string> = {
-  delegate: 'DELEGATE CHILD', 'place-outside': 'PROBE OUTSIDE',
-  'wrong-key': 'TRY WRONG KEY', 'place-inside': 'PLACE INSIDE', replay: 'REPLAY CALL',
-  expire: 'EXPIRE ROOT',
+  delegate: '2 · GIVE WORKER LESS ACCESS', 'place-outside': '3 · TRY OUTSIDE ITS AREA',
+  'wrong-key': '4 · TRY A DIFFERENT KEY', 'place-inside': '5 · PLACE ALLOWED PIXEL', replay: '6 · REPLAY SAME REQUEST',
+  expire: '7 · EXPIRE AND RETRY',
 }
 
 function short(value: string | undefined, start = 13, end = 8) {
@@ -57,9 +57,10 @@ function CapabilityTree({ run }: { run?: TesseraRun }) {
     ['TOOL', 'tool_ids'], ['PAYMENT LINEAGE', 'hedera_tx_id'], ['POLICY HASH', 'policy_hash'],
   ]
   return <section className="tessera-tree" aria-label="Scope402 capability tree">
-    <div className="tessera-tree-heading"><span className="section-label">THE AUTHORITY IS THE PRODUCT</span>
-      <h2>One purchase.<br/><em>Two bounded actors.</em></h2>
-      <p>Root authority narrows into a worker capability. Every value below is rendered from the hosted agent’s persisted response.</p>
+    <div className="tessera-tree-heading"><span className="section-label">ONE PAYMENT · TWO AGENTS</span>
+      <h2>The worker gets<br/><em>less access.</em></h2>
+      <p>The principal buys one area, then gives a different worker a smaller area, fewer calls, and less time.
+        These values come from the server.</p>
     </div>
     <div className="tree-table-wrap">
       <table className="tree-table"><thead><tr><th>DIMENSION</th><th>ROOT · PRINCIPAL A</th><th>CHILD · WORKER B</th></tr></thead>
@@ -75,8 +76,8 @@ function PurchaseProof({ run }: { run?: TesseraRun }) {
   const quote = run?.quote
   const payment = run?.payment
   return <section className="tessera-purchase-proof" aria-label="Tessera purchase terms and settlement">
-    <div className="purchase-proof-heading"><span className="section-label">PURCHASE POLICY</span>
-      <h2>Know the authority<br/><em>before paying.</em></h2></div>
+    <div className="purchase-proof-heading"><span className="section-label">WHAT THIS PAYMENT BUYS</span>
+      <h2>Check the limits<br/><em>before paying.</em></h2></div>
     <dl className="purchase-proof-grid">
       <div><dt>PRICE</dt><dd className="mono">{quote ? `${quote.pricing.total_tinybars} TINYBARS` : '—'}</dd></div>
       <div><dt>PAYER</dt><dd className="mono">{quote?.payer ?? '—'}</dd></div>
@@ -87,7 +88,7 @@ function PurchaseProof({ run }: { run?: TesseraRun }) {
     </dl>
     <div className={`settlement-proof ${payment ? 'settled' : ''}`}>
       <span className="mono">{payment ? `${payment.amount_tinybars} TINYBARS SETTLED` :
-        quote ? 'NOT SETTLED · APPROVAL REQUIRED' : 'PREPARE A QUOTE TO INSPECT TERMS'}</span>
+        quote ? 'NOT PAID · YOUR APPROVAL IS REQUIRED' : 'START TO SEE THE PRICE AND LIMITS'}</span>
       {payment && <a className="button" href={payment.hashscan_url} target="_blank" rel="noreferrer">
         VERIFY ON HASHSCAN ↗</a>}
     </div>
@@ -112,7 +113,7 @@ function CanvasPanel({ canvas, run, action }: {
       style={pixel ? { backgroundColor: pixel } : undefined} title={`${x},${y}${pixel ? ` · ${pixel}` : ''}`} />
   })
   return <section className="tessera-canvas-card" aria-label="Server authoritative canvas">
-    <div className="tessera-panel-head"><div><span className="section-label">SERVER CANVAS</span><h2>Authority has edges.</h2></div>
+    <div className="tessera-panel-head"><div><span className="section-label">LIVE SERVER CANVAS</span><h2>Only approved pixels land.</h2></div>
       <span className="mono canvas-size">32 × 32</span></div>
     <div className="canvas-wrap"><div className="canvas-grid">{cells}</div></div>
     <div className="canvas-key mono"><span><i className="root-key" />ROOT REGION</span><span><i className="child-key" />CHILD REGION</span><span><i className="pixel-key" />SERVER PIXEL</span></div>
@@ -280,23 +281,24 @@ export function TesseraPage() {
 
   return <main className="tessera-shell">
     <header className="site-header"><a className="brand" href="/">SCOPE<span>402</span></a>
-      <nav aria-label="Tessera navigation"><a href="/">AUDITLAB</a><a href="/demo">LIVE DEMO</a></nav>
+      <nav aria-label="Tessera navigation"><a href="/">HOME</a><a href="/demo">REPOSITORY DEMO</a></nav>
       <div className="mode"><span className={`status-dot ${agentDot}`} /> TESSERA · {agentHealth}</div>
     </header>
 
-    <section className="tessera-hero"><div><span className="eyebrow">HEDERA TESTNET · TESSERA · SCOPE402</span>
-      <h1>The canvas is the instrument.<br/><em>The lease is the product.</em></h1></div>
-      <div className="tessera-hero-copy"><p>A guarded hosted agent buys one real 8 × 8 root capability, delegates a contained worker capability, and asks the server to prove every boundary.</p>
+    <section className="tessera-hero"><div><span className="eyebrow">LIVE MULTI-AGENT DEMO · HEDERA TESTNET</span>
+      <h1>Buy an area.<br/><em>Share less access.</em></h1></div>
+      <div className="tessera-hero-copy"><p>Watch one agent pay for an 8 × 8 canvas area, give a smaller 4 × 4 area to another agent,
+        and prove that neither agent can exceed its limits.</p>
         <div className="tessera-hero-actions"><button className="button primary" type="button" onClick={start}
           disabled={loading || Boolean(runId) || ['CHECKING', 'WAKING'].includes(agentHealth)}>
           {loading ? 'CONTACTING AGENT…' : runId ? 'RUN IN PROGRESS' :
             agentHealth === 'RETRYING' ? 'RETRY & PREPARE QUOTE' :
             agentHealth === 'WAKING' ? 'WAKING TESSERA AGENT…' :
-            agentHealth === 'CHECKING' ? 'CHECKING TESSERA AGENT…' : 'PREPARE REAL TESSERA QUOTE'}</button>
+            agentHealth === 'CHECKING' ? 'CHECKING TESSERA AGENT…' : 'SEE PRICE & TERMS'}</button>
           {runId && (state === 'COMPLETE' || state === 'FAILED' || error.includes('DEMO_RUN_EXPIRED')) &&
             <button className="button" type="button" onClick={resetRun}>START NEW RUN</button>}
           <a className="button" href={`${publicTesseraApiUrl}/v1/canvas`} target="_blank" rel="noreferrer">READ CANVAS ↗</a></div>
-        <p className="tessera-boundary mono">PAYER: PLATFORM-FUNDED TESTNET · KEYS STAY SERVER-SIDE</p></div></section>
+        <p className="tessera-boundary mono">DEMO AGENT PAYS ON TESTNET · PRIVATE KEYS NEVER ENTER THIS PAGE</p></div></section>
 
     <div className="tessera-status-strip"><div><small>HOSTED STATE</small><strong className="mono">{state}</strong></div>
       <div><small>RUN</small><strong className="mono">{runId ? short(runId) : 'NOT STARTED'}</strong></div>
@@ -307,11 +309,11 @@ export function TesseraPage() {
 
     <div className="tessera-main-grid"><CapabilityTree run={run} /><CanvasPanel canvas={canvas} run={run} action={action} /></div>
 
-    <section className="tessera-control"><div className="section-label">FIXED HOSTED-AGENT ACTIONS</div><h2>Ask the agent.<br/><em>Never sign in the tab.</em></h2>
-      <p>Buttons request named scenarios only. The agent owns payment, P-256 subjects, delegation signatures, lease tokens, counters, and coordinates.</p>
+    <section className="tessera-control"><div className="section-label">FOLLOW THE PROOF</div><h2>Pay once.<br/><em>Test every limit.</em></h2>
+      <p>Use the buttons from left to right. The server chooses the keys, areas, and requests, so the page cannot fake a successful action.</p>
       <div className="tessera-action-grid"><button className="button primary" type="button"
         disabled={busy || !['PAYMENT_REQUIRED', 'PAYMENT_RECOVERY'].includes(state)} onClick={() => void approve()}>
-        {state === 'PAYMENT_RECOVERY' ? 'RECOVER PAID ROOT' : 'PAY FOR ROOT'}</button>
+        {state === 'PAYMENT_RECOVERY' ? '1 · RECOVER PAYMENT' : '1 · PAY FOR 8 × 8 AREA'}</button>
         <ActionButton action="delegate" disabled={busy || !rootReady || childReady} onClick={() => void act('delegate')} />
         <ActionButton action="place-outside" disabled={busy || !childReady || completed.has('place-outside')} onClick={() => void act('place-outside')} />
         <ActionButton action="wrong-key" disabled={busy || !completed.has('place-outside') || completed.has('wrong-key')} onClick={() => void act('wrong-key')} />
