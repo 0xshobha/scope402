@@ -128,6 +128,16 @@ function ActionButton({ action, disabled, onClick }: { action: TesseraActionName
   return <button className="button" type="button" disabled={disabled} onClick={onClick}>{actionLabels[action]}</button>
 }
 
+function runErrorHeading(error: string) {
+  if (error.startsWith('TESSERA_AGENT_REVISION_UNAVAILABLE')) return 'TESSERA AGENT UPDATE REQUIRED'
+  if (error.startsWith('DEMO_RATE_LIMITED') || error.startsWith('DEMO_SPEND_LIMITED')) {
+    return 'HOSTED DEMO CAPACITY REACHED'
+  }
+  if (error.startsWith('DEMO_RUN_ACTIVE')) return 'ANOTHER RUN IS STILL ACTIVE'
+  if (error.startsWith('DEMO_BALANCE_FLOOR')) return 'DEMO WALLET SAFETY FLOOR REACHED'
+  return 'RUN STOPPED'
+}
+
 export function TesseraPage() {
   const [run, setRun] = useState<TesseraRun>()
   const [canvas, setCanvas] = useState<TesseraCanvas>()
@@ -283,7 +293,7 @@ export function TesseraPage() {
           {loading ? 'CONTACTING AGENT…' : runId ? 'RUN IN PROGRESS' :
             agentHealth === 'UNAVAILABLE' ? 'TESSERA AGENT UNAVAILABLE' :
             agentHealth === 'WAKING' ? 'WAKING TESSERA AGENT…' :
-            agentHealth === 'CHECKING' ? 'CHECKING TESSERA AGENT…' : 'START REAL TESSERA RUN'}</button>
+            agentHealth === 'CHECKING' ? 'CHECKING TESSERA AGENT…' : 'PREPARE REAL TESSERA QUOTE'}</button>
           {runId && (state === 'COMPLETE' || state === 'FAILED' || error.includes('DEMO_RUN_EXPIRED')) &&
             <button className="button" type="button" onClick={resetRun}>START NEW RUN</button>}
           <a className="button" href={`${publicTesseraApiUrl}/v1/canvas`} target="_blank" rel="noreferrer">READ CANVAS ↗</a></div>
@@ -310,9 +320,8 @@ export function TesseraPage() {
         <ActionButton action="replay" disabled={busy || !completed.has('place-inside') || completed.has('replay')} onClick={() => void act('replay')} />
         <ActionButton action="expire" disabled={busy || !completed.has('replay') || completed.has('expire')} onClick={() => void act('expire')} />
       </div>
-      {error && <div className="demo-error" role="alert"><strong>
-        {error.startsWith('TESSERA_AGENT_REVISION_UNAVAILABLE') ? 'TESSERA AGENT UPDATE REQUIRED' : 'RUN STOPPED'}
-      </strong><code>{error}</code></div>}
+      {error && <div className="demo-error" role="alert"><strong>{runErrorHeading(error)}</strong>
+        <code>{error}</code></div>}
     </section>
 
     <footer><span>Scope402 · Tessera capability tree</span><a href={`${publicTesseraAgentUrl}/health`} target="_blank" rel="noreferrer">AGENT HEALTH ↗</a><a href="/demo">AUDITLAB DEMO ↗</a></footer>
