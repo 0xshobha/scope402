@@ -1,0 +1,20 @@
+# Scope402
+
+> Scope402 lets agents purchase limited API access with Hedera testnet HBAR and delegate narrower access to another subject key.
+
+AuditLab scans public GitHub repositories. Tessera demonstrates resource scope and one-level delegation on a canvas. The merchant persists the purchase policy, the payer validates and echoes it, and the API enforces subsequent signed calls. The Hedera transaction does not directly sign the capability policy.
+
+Use your own server-side payer and P-256 subject keys for integration. The platform-funded browser agent is a constrained demonstration, not a general wallet API. Generic x402 clients also need Scope402 policy validation and invocation signing. No Bazaar listing, MCP adapter, ENS integration, mainnet service, or self-service merchant onboarding is claimed.
+
+## Developer documentation
+
+- [Agent quickstart](https://scope402.onrender.com/docs/agent-quickstart.md): Read-only discovery, prepare-before-pay example, and integration limits.
+- [API contract](https://scope402.onrender.com/docs/api-contract.md): Purchase, invocation, delegation, counters, policy binding, errors, and retry semantics.
+- [Tessera OpenAPI contract](https://scope402.onrender.com/openapi.json): Machine-readable Tessera HTTP schemas; read the signing contract before making paid calls.
+
+## Service metadata and source
+
+- [Service discovery](https://scope402-auditlab.onrender.com/.well-known/scope402): Known-origin routes and authorization metadata; not a global directory.
+- [API health](https://scope402-auditlab.onrender.com/health): API process health, not proof of facilitator or payment availability.
+- [Public canvas](https://scope402-auditlab.onrender.com/v1/canvas): Persisted pixels and root regions; existing pixels are not proof of a new run.
+- [Project README](https://raw.githubusercontent.com/0xshobha/scope402/main/README.md): Architecture, setup, evidence, and current limitations.

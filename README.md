@@ -114,6 +114,11 @@ credit. The hosted path returned `200 CAPABILITY_DELEGATED`, `403 OUT_OF_SCOPE`,
 
 ## Run locally
 
+For independent agents, start with the [quickstart](apps/web/public/docs/agent-quickstart.md),
+[HTTP and signing contract](apps/web/public/docs/api-contract.md), and
+[Tessera OpenAPI](apps/web/public/openapi.json). The website publishes a small
+[llms.txt documentation index](apps/web/public/llms.txt); this does not imply a directory listing or automatic client compatibility.
+
 Requirements: Node.js 22+, pnpm through Corepack, and PostgreSQL.
 
 ```bash

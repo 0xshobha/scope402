@@ -1,0 +1,258 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Scope402 Tessera API",
+    "version": "2026-09-06",
+    "description": "Tessera purchase, invocation and one-level delegation, plus public metadata. AuditLab purchase schemas and hosted-agent routes are outside this document. Requests require x402 payment or body-carried signed capabilities as described per operation. OpenAPI client generation does not implement Scope402 signing or policy verification."
+  },
+  "servers": [{ "url": "https://scope402-auditlab.onrender.com" }],
+  "externalDocs": { "description": "Signing, policy binding and recovery semantics", "url": "https://scope402.onrender.com/docs/api-contract.md" },
+  "paths": {
+    "/health": {
+      "get": {
+        "operationId": "getHealth",
+        "summary": "Read API process health; does not verify payment availability",
+        "responses": { "200": { "description": "API process responds", "content": { "application/json": { "schema": {
+          "type": "object", "required": ["ok", "service"], "properties": { "ok": { "const": true }, "service": { "const": "auditlab" } }
+        } } } } }
+      }
+    },
+    "/.well-known/scope402": {
+      "get": {
+        "operationId": "getDiscovery",
+        "summary": "Read known-origin service routes, not a global directory",
+        "responses": { "200": { "description": "Discovery version 1", "content": { "application/json": { "schema": {
+          "type": "object", "required": ["service", "version", "network", "payment", "resources", "authorization"],
+          "properties": {
+            "service": { "type": "object", "required": ["id", "name"], "properties": { "id": { "const": "auditlab" }, "name": { "const": "AuditLab" } } },
+            "version": { "const": 1 }, "network": { "const": "hedera:testnet" },
+            "payment": { "type": "object", "required": ["protocol", "version", "facilitator"], "properties": { "protocol": { "const": "x402" }, "version": { "const": 2 }, "facilitator": { "const": "blocky402" } } },
+            "resources": { "type": "object", "additionalProperties": { "$ref": "#/components/schemas/Route" } },
+            "authorization": { "type": "object", "required": ["scheme", "delegation", "tools"], "properties": {
+              "scheme": { "const": "scope402-tool-lease" },
+              "delegation": { "type": "object", "required": ["method", "path_template"], "properties": { "method": { "const": "POST" }, "path_template": { "const": "/v1/leases/{lease_id}/delegations" } } },
+              "tools": { "type": "array", "items": { "allOf": [{ "$ref": "#/components/schemas/Route" }, { "type": "object", "required": ["id"], "properties": { "id": { "type": "string" } } }] } }
+            } }
+          }
+        } } } } }
+      }
+    },
+    "/v1/canvas": {
+      "get": {
+        "operationId": "getCanvas",
+        "summary": "Read persisted canvas; regions may be expired",
+        "responses": {
+          "200": { "description": "Canvas state", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Canvas" } } } },
+          "503": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/v1/plots": {
+      "post": {
+        "operationId": "purchasePlot",
+        "summary": "Prepare an unpaid quote or fulfill the same quoted purchase",
+        "description": "No payment header: reserves a server-selected 8x8 plot for five minutes and returns 402. Paid retry: use the exact returned resource.url including quote_id, original body and approved x402 echo. A root has 12 calls and 300 seconds from issuance. Do not sign another transfer after an ambiguous delivery. Maximum body: 4096 bytes.",
+        "parameters": [
+          { "name": "quote_id", "in": "query", "required": false, "description": "Required on paid retry; use the quoted URL unchanged", "schema": { "type": "string", "format": "uuid" } },
+          { "name": "PAYMENT-SIGNATURE", "in": "header", "required": false, "description": "SDK-encoded x402 v2 PaymentPayload, including unchanged resource, accepted requirements and scope402 extension", "schema": { "type": "string" } }
+        ],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": {
+          "type": "object", "additionalProperties": false, "required": ["canvas_id", "subject_pubkey"],
+          "properties": { "canvas_id": { "const": "main" }, "subject_pubkey": { "$ref": "#/components/schemas/SubjectKey" } }
+        } } } },
+        "responses": {
+          "200": { "description": "Settled purchase fulfilled, or original result recovered; this does not renew an expired lease", "headers": {
+            "PAYMENT-RESPONSE": { "description": "SDK-encoded x402 settlement receipt; validate success, network, payer and transaction", "schema": { "type": "string" } }
+          }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PlotResult" } } } },
+          "402": { "description": "Unpaid quote; no settlement yet", "headers": {
+            "PAYMENT-REQUIRED": { "description": "SDK-encoded x402 v2 challenge", "schema": { "type": "string" } }
+          }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PlotQuote" } } } },
+          "400": { "$ref": "#/components/responses/Error" },
+          "409": { "$ref": "#/components/responses/Error" },
+          "413": { "$ref": "#/components/responses/TooLarge" },
+          "429": { "description": "QUOTE_RATE_LIMITED", "headers": { "Retry-After": { "schema": { "type": "string" }, "description": "Seconds before another quote attempt" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "502": { "$ref": "#/components/responses/Error" },
+          "503": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/v1/tools/place_pixel": {
+      "post": {
+        "operationId": "placePixel",
+        "summary": "Execute one subject-signed pixel action under purchased authority",
+        "description": "Authorization is carried in the JSON lease/signature fields, not a bearer header. The signature is a compact ES256 invocation JWS described in the signing contract. Successful calls atomically consume one call and update a pixel. Maximum body: 32768 bytes.",
+        "parameters": [{ "$ref": "#/components/parameters/IdempotencyKey" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PixelRequest" } } } },
+        "responses": {
+          "200": { "description": "Pixel committed or original idempotent result returned", "content": { "application/json": { "schema": {
+            "type": "object", "required": ["status", "lease_id", "counter", "pixel", "remaining_calls"],
+            "properties": {
+              "status": { "const": "PIXEL_PLACED" }, "lease_id": { "type": "string" }, "counter": { "$ref": "#/components/schemas/Counter" },
+              "pixel": { "allOf": [{ "$ref": "#/components/schemas/Pixel" }, { "type": "object", "required": ["canvas_id"], "properties": { "canvas_id": { "const": "main" } } }] },
+              "remaining_calls": { "type": "integer", "minimum": 0 }
+            }
+          } } } },
+          "401": { "$ref": "#/components/responses/Error" }, "403": { "$ref": "#/components/responses/Error" },
+          "410": { "$ref": "#/components/responses/Error" }, "413": { "$ref": "#/components/responses/TooLarge" }
+        }
+      }
+    },
+    "/v1/leases/{lease_id}/delegations": {
+      "post": {
+        "operationId": "delegateCapability",
+        "summary": "Reserve root calls and issue a narrower capability to a distinct worker",
+        "description": "Tessera only; one level. Body delegation is a parent-signed compact JWS, not a plaintext terms object. Its payload follows DelegationTerms. Child rectangle must be contained and unequal to the root; expiry may equal but not exceed the root. Calls cannot exceed unreserved parent authority. Lineage is inherited server-side. Maximum body: 32768 bytes.",
+        "parameters": [
+          { "name": "lease_id", "in": "path", "required": true, "schema": { "type": "string" }, "description": "Must equal the parent lease ID in the token and delegation" },
+          { "$ref": "#/components/parameters/IdempotencyKey" }
+        ],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": {
+          "type": "object", "additionalProperties": false, "required": ["lease", "delegation"],
+          "properties": { "lease": { "type": "string", "description": "Parent service-signed JWS" }, "delegation": { "type": "string", "description": "Parent-subject-signed scope402-delegation+jws" } }
+        } } } },
+        "responses": {
+          "200": { "description": "Child issued and budget reserved, or original idempotent result returned", "content": { "application/json": { "schema": {
+            "type": "object", "required": ["status", "lease", "parent"], "properties": {
+              "status": { "const": "CAPABILITY_DELEGATED" },
+              "lease": { "allOf": [{ "$ref": "#/components/schemas/Lease" }, { "type": "object", "required": ["parent_lease_id"] }] },
+              "parent": { "type": "object", "required": ["lease_id", "reserved_calls", "remaining_calls", "delegation_counter"], "properties": {
+                "lease_id": { "type": "string" }, "reserved_calls": { "type": "integer", "minimum": 1 },
+                "remaining_calls": { "type": "integer", "minimum": 0 }, "delegation_counter": { "$ref": "#/components/schemas/Counter" }
+              } }
+            }
+          } } } },
+          "401": { "$ref": "#/components/responses/Error" }, "403": { "$ref": "#/components/responses/Error" },
+          "410": { "$ref": "#/components/responses/Error" }, "413": { "$ref": "#/components/responses/TooLarge" }
+        }
+      }
+    }
+  },
+  "components": {
+    "parameters": {
+      "IdempotencyKey": {
+        "name": "Idempotency-Key", "in": "header", "required": false,
+        "description": "UUID v4 per new operation. Exact retries retain the same key AND signed body. A saved success may be returned after expiry; it does not grant new authority. Different content with the same key is rejected. No matching receipt: normal signature/counter/expiry checks apply.",
+        "schema": { "type": "string", "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$" }
+      }
+    },
+    "responses": {
+      "Error": { "description": "Inspect HTTP status and error code; see the signing contract for recovery. Transport/proxy errors can have other bodies.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+      "TooLarge": { "description": "Request exceeds route body-size limit", "content": { "text/plain": { "schema": { "type": "string" } } } }
+    },
+    "schemas": {
+      "Error": { "type": "object", "required": ["error", "message"], "properties": { "error": { "type": "string" }, "message": { "type": "string" } } },
+      "Route": { "type": "object", "required": ["method", "path"], "properties": { "method": { "enum": ["GET", "POST"] }, "path": { "type": "string" } } },
+      "SubjectKey": { "type": "string", "description": "Base64url DER SPKI P-256 public key. Not PEM, JWK, fingerprint, account ID or private key." },
+      "Counter": { "type": "integer", "minimum": 1, "maximum": 9007199254740991, "description": "Next counter, starting at 1. Invocation and delegation sequences are separate." },
+      "PolicyHash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+      "Region": { "allOf": [{ "$ref": "#/components/schemas/RegionFields" }], "unevaluatedProperties": false },
+      "RegionFields": {
+        "type": "object", "required": ["kind", "canvasId", "x", "y", "width", "height"],
+        "description": "Half-open rectangle. x+width and y+height must be <=32. Signed resource objects allow exactly these six fields.",
+        "properties": {
+          "kind": { "const": "canvas-region" }, "canvasId": { "const": "main" },
+          "x": { "type": "integer", "minimum": 0, "maximum": 31 }, "y": { "type": "integer", "minimum": 0, "maximum": 31 },
+          "width": { "type": "integer", "minimum": 1, "maximum": 32 }, "height": { "type": "integer", "minimum": 1, "maximum": 32 }
+        }
+      },
+      "Color": { "type": "string", "enum": ["#0B0B0C", "#F5F2EA", "#FFFFFF", "#FFB020", "#7C4DFF", "#00D3F2", "#C6F432", "#FF3B30"] },
+      "Pixel": {
+        "type": "object", "required": ["x", "y", "color", "updated_at"], "properties": {
+          "x": { "type": "integer", "minimum": 0, "maximum": 31 }, "y": { "type": "integer", "minimum": 0, "maximum": 31 },
+          "color": { "$ref": "#/components/schemas/Color" }, "updated_at": { "type": "integer", "description": "Unix seconds" }
+        }
+      },
+      "Canvas": {
+        "type": "object", "required": ["canvas_id", "width", "height", "palette", "pixels", "regions"], "properties": {
+          "canvas_id": { "const": "main" }, "width": { "const": 32 }, "height": { "const": 32 },
+          "palette": { "type": "array", "items": { "$ref": "#/components/schemas/Color" } },
+          "pixels": { "type": "array", "items": { "$ref": "#/components/schemas/Pixel" } },
+          "regions": { "type": "array", "items": { "allOf": [{ "$ref": "#/components/schemas/RegionFields" }, {
+            "type": "object", "required": ["slot", "lease_id", "expires_at", "remaining_calls", "active", "status"], "properties": {
+              "slot": { "type": "integer", "minimum": 0, "maximum": 15 }, "lease_id": { "type": "string" }, "expires_at": { "type": "integer" },
+              "remaining_calls": { "type": "integer", "minimum": 0 }, "active": { "type": "boolean" }, "status": { "enum": ["active", "expired"] }
+            }
+          }] } }
+        }
+      },
+      "ScopePolicy": {
+        "type": "object", "additionalProperties": false, "required": ["version", "subject", "audience", "resource", "tools", "maxCalls", "ttlSeconds", "policyHash"],
+        "properties": {
+          "version": { "const": 1 }, "subject": { "type": "object", "additionalProperties": false, "required": ["scheme", "publicKey"], "properties": { "scheme": { "const": "p256" }, "publicKey": { "$ref": "#/components/schemas/SubjectKey" } } },
+          "audience": { "type": "string", "format": "uri" }, "resource": { "$ref": "#/components/schemas/Region" },
+          "tools": { "type": "array", "minItems": 1, "maxItems": 1, "items": { "const": "place_pixel" } },
+          "maxCalls": { "const": 12 }, "ttlSeconds": { "const": 300 }, "policyHash": { "$ref": "#/components/schemas/PolicyHash" }
+        }
+      },
+      "PaymentRequirement": {
+        "type": "object", "required": ["scheme", "network", "asset", "amount", "payTo", "maxTimeoutSeconds", "extra"],
+        "properties": {
+          "scheme": { "const": "exact" }, "network": { "const": "hedera:testnet" }, "asset": { "const": "0.0.0" },
+          "amount": { "type": "string", "pattern": "^[1-9][0-9]*$", "description": "Tinybars; use the approved quote" },
+          "payTo": { "type": "string" }, "maxTimeoutSeconds": { "type": "integer" }, "extra": { "type": "object" }
+        }
+      },
+      "PlotQuote": {
+        "type": "object", "required": ["x402Version", "error", "resource", "accepts", "extensions", "quote"], "properties": {
+          "x402Version": { "const": 2 }, "error": { "type": "string" },
+          "resource": { "type": "object", "required": ["url", "description", "mimeType"], "properties": { "url": { "type": "string", "format": "uri", "description": "Use this URL for paid retry, preserving quote_id" }, "description": { "type": "string" }, "mimeType": { "const": "application/json" } } },
+          "accepts": { "type": "array", "minItems": 1, "items": { "$ref": "#/components/schemas/PaymentRequirement" } },
+          "extensions": { "type": "object", "required": ["scope402"], "additionalProperties": false, "properties": {
+            "scope402": { "type": "object", "additionalProperties": false, "required": ["info", "schema"], "properties": {
+              "info": { "$ref": "#/components/schemas/ScopePolicy" }, "schema": { "type": "object", "description": "Exact advertised extension schema, not a copy of this OpenAPI schema. Validate and echo unchanged." }
+            } }
+          } },
+          "quote": { "type": "object", "required": ["canvas_id", "region", "pricing"], "properties": {
+            "canvas_id": { "const": "main" }, "region": { "$ref": "#/components/schemas/Region" },
+            "pricing": { "type": "object", "required": ["base_tinybars", "per_call_tinybars", "calls", "total_tinybars"], "properties": {
+              "base_tinybars": { "type": "string" }, "per_call_tinybars": { "type": "string" }, "calls": { "const": 12 }, "total_tinybars": { "type": "string" }
+            } }
+          } }
+        }
+      },
+      "Lease": {
+        "type": "object", "required": ["token", "lease_id", "subject_pubkey", "aud", "catalogue_hash", "tool_ids", "max_calls", "exp", "offer_id", "hedera_tx_id", "policy_hash", "resource", "root_lease_id"],
+        "properties": {
+          "token": { "type": "string", "description": "Service-signed compact ES256 JWS" }, "lease_id": { "type": "string" }, "subject_pubkey": { "$ref": "#/components/schemas/SubjectKey" },
+          "aud": { "type": "string", "format": "uri" }, "catalogue_hash": { "type": "string" },
+          "tool_ids": { "type": "array", "minItems": 1, "maxItems": 1, "items": { "const": "place_pixel" } },
+          "max_calls": { "type": "integer", "minimum": 1, "maximum": 12 }, "exp": { "type": "integer", "description": "Unix seconds" },
+          "offer_id": { "type": "string", "description": "Immutable paid quote ID" }, "hedera_tx_id": { "type": "string" }, "policy_hash": { "$ref": "#/components/schemas/PolicyHash" },
+          "resource": { "$ref": "#/components/schemas/Region" }, "root_lease_id": { "type": "string" }, "parent_lease_id": { "type": "string" }
+        }
+      },
+      "PlotResult": {
+        "type": "object", "required": ["status", "canvas_id", "region", "payment", "lease"], "properties": {
+          "status": { "const": "complete" }, "canvas_id": { "const": "main" }, "region": { "$ref": "#/components/schemas/Region" }, "lease": { "$ref": "#/components/schemas/Lease" },
+          "payment": { "type": "object", "required": ["merchant", "amount_tinybars", "transaction", "hashscan_url"], "properties": {
+            "payer": { "type": "string" }, "merchant": { "type": "string" }, "amount_tinybars": { "type": "string" }, "transaction": { "type": "string" }, "hashscan_url": { "type": "string", "format": "uri" }
+          } }
+        }
+      },
+      "PixelRequest": {
+        "type": "object", "additionalProperties": false, "required": ["lease", "args", "counter", "signature"], "properties": {
+          "lease": { "type": "string" }, "counter": { "$ref": "#/components/schemas/Counter" }, "signature": { "type": "string", "description": "Subject-signed compact scope402-invocation+jws; decoded payload follows InvocationClaims" },
+          "args": { "type": "object", "additionalProperties": false, "required": ["canvas_id", "x", "y", "color"], "properties": {
+            "canvas_id": { "const": "main" }, "x": { "type": "integer", "minimum": 0, "maximum": 31 }, "y": { "type": "integer", "minimum": 0, "maximum": 31 }, "color": { "$ref": "#/components/schemas/Color" }
+          } }
+        }
+      },
+      "InvocationClaims": {
+        "type": "object", "required": ["lease_id", "tool_id", "counter", "args_hash", "issued_at"], "properties": {
+          "lease_id": { "type": "string" }, "tool_id": { "const": "place_pixel" }, "counter": { "$ref": "#/components/schemas/Counter" },
+          "args_hash": { "type": "string", "pattern": "^[0-9a-f]{64}$", "description": "SHA-256 hex of JCS(args), no sha256: prefix" },
+          "issued_at": { "type": "integer", "description": "Unix seconds; within 120 seconds of server clock" }
+        }
+      },
+      "DelegationTerms": {
+        "type": "object", "additionalProperties": false, "required": ["parent_lease_id", "child_subject_pubkey", "resource", "tool_ids", "max_calls", "expires_at", "counter", "issued_at"],
+        "properties": {
+          "parent_lease_id": { "type": "string" }, "child_subject_pubkey": { "$ref": "#/components/schemas/SubjectKey" }, "resource": { "$ref": "#/components/schemas/Region" },
+          "tool_ids": { "type": "array", "minItems": 1, "maxItems": 1, "uniqueItems": true, "items": { "const": "place_pixel" } },
+          "max_calls": { "type": "integer", "minimum": 1, "maximum": 12 }, "expires_at": { "type": "integer" },
+          "counter": { "$ref": "#/components/schemas/Counter" }, "issued_at": { "type": "integer" }
+        }
+      }
+    }
+  }
+}
