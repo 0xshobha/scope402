@@ -45,7 +45,7 @@ function config() {
     payerPrivateKey: required('HEDERA_PAYER_PRIVATE_KEY'),
   }
   const limits: DemoRunLimits = {
-    runTtlMs: boundedNumber('DEMO_RUN_TTL_SECONDS', '240', 600) * 1_000,
+    runTtlMs: boundedNumber('DEMO_RUN_TTL_SECONDS', '600', 600) * 1_000,
     perIpRunsPerHour: boundedNumber('DEMO_MAX_RUNS_PER_IP_HOUR', '3', 100),
     globalRunsPerHour: boundedNumber('DEMO_MAX_GLOBAL_RUNS_HOUR', '50', 2_000),
     globalApprovalsPerHour: boundedNumber('DEMO_MAX_GLOBAL_APPROVALS_HOUR', '20', 1_000),
