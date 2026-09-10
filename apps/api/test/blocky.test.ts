@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { clearHederaSupportCache, getHederaSupport, selectHederaSupport } from '../src/blocky.js'
+import { clearHederaSupportCache, getHederaSupport, probeHederaSupport,
+  selectHederaSupport } from '../src/blocky.js'
 
 const hedera = {
   scheme: 'exact', network: 'hedera:testnet', x402Version: 2,
@@ -61,5 +62,24 @@ test('caches support, deduplicates refreshes, and keeps the last known value', a
   now += 5 * 60_000 + 1
   unavailable = true
   assert.deepEqual(await getHederaSupport(), hedera)
+  assert.equal(calls, 2)
+})
+
+test('readiness probe bypasses the last-known support cache', async (t) => {
+  clearHederaSupportCache()
+  let calls = 0
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = (async () => {
+    calls += 1
+    if (calls === 1) return new Response(JSON.stringify({ kinds: [hedera] }), { status: 200 })
+    return new Response('{}', { status: 503 })
+  }) as typeof fetch
+  t.after(() => {
+    globalThis.fetch = originalFetch
+    clearHederaSupportCache()
+  })
+
+  assert.deepEqual(await getHederaSupport(), hedera)
+  await assert.rejects(probeHederaSupport(), /HTTP 503/)
   assert.equal(calls, 2)
 })

@@ -16,6 +16,11 @@ fixed delegation, pixel, boundary, wrong-key, replay, and expiry sequence withou
 
 Public API: [scope402-auditlab.onrender.com](https://scope402-auditlab.onrender.com/health)
 
+Operational readiness: [`/ready`](https://scope402-auditlab.onrender.com/ready) checks PostgreSQL,
+Blocky402 Hedera testnet support, merchant configuration, and the P-256 capability issuer. It returns `503`
+with sanitized per-dependency status when the payment-and-capability path is unavailable; `/health` remains
+the process-liveness probe.
+
 Public web: [scope402.onrender.com](https://scope402.onrender.com)
 
 ## Why
@@ -194,7 +199,9 @@ immutable lineage, root expiry, budget conservation, and concurrent invocation/d
 - browser actions are fixed requests to the hosted agent; keys, lease tokens, signatures, and demo-control secrets
   remain outside the browser
 - hosted-agent run and abuse-control state is intentionally single-instance and in memory for this public testnet
-  demonstration; it is not presented as a production multi-instance control plane
+  demonstration; a hosted-agent restart clears browser-run recovery and rate-limit state, and multiple agent instances
+  would not share those controls. Durable merchant state—including quotes, settlements, leases, replay counters, budgets,
+  and Tessera pixels—remains in PostgreSQL. The hosted agent is not presented as a production multi-instance control plane
 - no HCS anchoring, Agent Kit plugin, or additional sponsor integration yet
 - Tessera's paid-root, atomic pixel, one-level delegation, hosted-agent orchestration, browser UI, and public
   Hedera payment-to-denial sequence are implemented and evidenced; no ENS or WebMCP proof is claimed

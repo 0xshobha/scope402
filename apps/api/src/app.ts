@@ -8,15 +8,21 @@ import { plots } from './plots.js'
 import { tesseraCanvas } from './merchants/tessera/canvas.js'
 import { tesseraTools } from './merchants/tessera/tools.js'
 import { tools } from './tools.js'
+import { checkReadiness } from './readiness.js'
 
 export const app = new Hono()
 
 const publicReadCors = cors({ origin: '*', allowMethods: ['GET', 'OPTIONS'] })
 app.use('/health', publicReadCors)
+app.use('/ready', publicReadCors)
 app.use('/.well-known/scope402', publicReadCors)
 app.use('/v1/canvas', publicReadCors)
 
 app.get('/health', (c) => c.json({ ok: true, service: 'auditlab' }))
+app.get('/ready', async (c) => {
+  const readiness = await checkReadiness()
+  return c.json(readiness, readiness.ok ? 200 : 503)
+})
 app.get('/.well-known/scope402', (c) => {
   c.header('Cache-Control', 'public, max-age=300')
   return c.json(auditLabDiscovery)

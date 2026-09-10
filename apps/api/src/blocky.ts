@@ -47,6 +47,12 @@ async function fetchHederaSupport(): Promise<HederaSupport> {
   return selectHederaSupport(await response.json())
 }
 
+// Readiness must reflect the upstream now, not the last-known support value used
+// to keep an already prepared payment flow recoverable during a brief outage.
+export function probeHederaSupport(): Promise<HederaSupport> {
+  return fetchHederaSupport()
+}
+
 export async function getHederaSupport(): Promise<HederaSupport> {
   if (cached && cached.expiresAt > Date.now()) return cached.value
   if (inFlight) return inFlight
