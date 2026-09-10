@@ -10,10 +10,16 @@ a strictly smaller resource, budget, and expiry to a different P-256 worker.
 Read-only world discovery does not require a payment:
 
 ```ts
+const client = new Scope402Client({
+  auditLabUrl: new URL('https://scope402-auditlab.onrender.com'),
+})
 const worlds = await client.listTesseraWorlds()
 const opal = await client.readTesseraWorld('opal-world')
 console.log(worlds, opal.world.painted_pixels)
 ```
+
+Payer, merchant, and spending-limit configuration is required only when preparing paid work.
+The client rejects a purchase locally before making a request if any of those policy fields is absent.
 
 ```ts
 import { Scope402Client, ephemeralSubject } from '@scope402/agent'

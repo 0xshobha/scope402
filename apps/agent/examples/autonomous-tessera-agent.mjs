@@ -12,9 +12,9 @@ const emit = (event, details = {}) => console.log(JSON.stringify({
 
 const client = new Scope402Client({
   auditLabUrl: new URL(process.env.AUDITLAB_URL ?? 'https://scope402-auditlab.onrender.com'),
-  payer: required('HEDERA_PAYER_ACCOUNT_ID'),
-  merchant: required('HEDERA_MERCHANT_ACCOUNT_ID'),
-  maxPaymentTinybars: process.env.MAX_PAYMENT_TINYBARS ?? '100000',
+  ...(process.env.HEDERA_PAYER_ACCOUNT_ID ? { payer: process.env.HEDERA_PAYER_ACCOUNT_ID } : {}),
+  ...(process.env.HEDERA_MERCHANT_ACCOUNT_ID ? { merchant: process.env.HEDERA_MERCHANT_ACCOUNT_ID } : {}),
+  ...(process.env.MAX_PAYMENT_TINYBARS ? { maxPaymentTinybars: process.env.MAX_PAYMENT_TINYBARS } : {}),
 })
 
 const selectedCanvasId = process.env.TESSERA_CANVAS_ID ?? 'main'
@@ -27,6 +27,20 @@ if (existingWorld) {
     available_territories: 16 - state.world.active_territories - state.world.reserved_territories })
 } else {
   emit('NEW_WORLD_REQUESTED', { canvas_id: selectedCanvasId })
+}
+
+const missingPaymentConfig = [
+  'HEDERA_PAYER_ACCOUNT_ID',
+  'HEDERA_MERCHANT_ACCOUNT_ID',
+  'MAX_PAYMENT_TINYBARS',
+].filter((name) => !process.env[name])
+if (missingPaymentConfig.length > 0) {
+  emit('OBSERVATION_COMPLETE', {
+    hbar_moved: false,
+    message: 'World discovery needs no payment configuration. Configure all listed fields to request a quote.',
+    missing: missingPaymentConfig,
+  })
+  process.exit(0)
 }
 
 const principal = ephemeralSubject()

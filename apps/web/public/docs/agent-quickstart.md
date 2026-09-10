@@ -54,16 +54,21 @@ Then enter:
 
 ```js
 const { Scope402Client } = await import('./apps/agent/dist/sdk.js');
+const reader = new Scope402Client({
+  auditLabUrl: new URL(process.env.AUDITLAB_URL),
+});
+const worlds = await reader.listTesseraWorlds();
+const selectedWorld = await reader.readTesseraWorld('main');
+console.log({ worlds, paintedPixels: selectedWorld.world.painted_pixels,
+  activeTerritories: selectedWorld.world.active_territories });
+
+// Payment policy is needed only from this point onward.
 const client = new Scope402Client({
   auditLabUrl: new URL(process.env.AUDITLAB_URL),
   payer: process.env.HEDERA_PAYER_ACCOUNT_ID,
   merchant: process.env.HEDERA_MERCHANT_ACCOUNT_ID,
   maxPaymentTinybars: process.env.MAX_PAYMENT_TINYBARS,
 });
-const worlds = await client.listTesseraWorlds();
-const selectedWorld = await client.readTesseraWorld('main');
-console.log({ worlds, paintedPixels: selectedWorld.world.painted_pixels,
-  activeTerritories: selectedWorld.world.active_territories });
 const principal = await client.persistentSubject();
 const prepared = await client.prepareTessera({ subject: principal, slot: 0, canvasId: 'main' });
 console.log({ amount: prepared.terms.amount, payer: client.config.payer,

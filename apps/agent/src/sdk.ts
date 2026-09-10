@@ -20,6 +20,13 @@ export type { CanvasRegion } from './policy.js'
 
 type Fetch = typeof fetch
 
+export type Scope402ClientConfig = {
+  auditLabUrl: URL
+  payer?: string
+  merchant?: string
+  maxPaymentTinybars?: string
+}
+
 export type TesseraPixel = {
   canvas_id: string
   x: number
@@ -493,7 +500,15 @@ export class TesseraRootAuthority extends TesseraAuthority {
 }
 
 export class Scope402Client {
-  constructor(readonly config: AgentPolicy, private readonly request: Fetch = fetch) {}
+  constructor(readonly config: Scope402ClientConfig, private readonly request: Fetch = fetch) {}
+
+  private paymentPolicy(): AgentPolicy {
+    const { auditLabUrl, payer, merchant, maxPaymentTinybars } = this.config
+    if (!payer || !merchant || !maxPaymentTinybars) {
+      throw new Error('Configure payer, merchant, and maxPaymentTinybars before preparing paid work')
+    }
+    return { auditLabUrl, payer, merchant, maxPaymentTinybars }
+  }
 
   createSubject() {
     return ephemeralSubject()
@@ -527,20 +542,20 @@ export class Scope402Client {
   }
 
   prepareTessera(input: { subject: AgentSubject; canvasId?: string; slot?: number }) {
-    return preparePlotPurchase(this.config, input.subject, this.request,
+    return preparePlotPurchase(this.paymentPolicy(), input.subject, this.request,
       input.slot, input.canvasId ?? 'main')
   }
 
   async approveTessera(prepared: PreparedPlot, payerPrivateKey: string) {
-    const settled = await approvePlotPurchase({ ...this.config, payerPrivateKey }, prepared, this.request)
+    const settled = await approvePlotPurchase({ ...this.paymentPolicy(), payerPrivateKey }, prepared, this.request)
     return { ...settled, authority: new TesseraRootAuthority(prepared, settled.result, this.request) }
   }
 
   prepareAuditLab(input: { subject: AgentSubject; repository: string }) {
-    return prepareScanPurchase(this.config, input.repository, input.subject, this.request)
+    return prepareScanPurchase(this.paymentPolicy(), input.repository, input.subject, this.request)
   }
 
   approveAuditLab(prepared: PreparedScan, payerPrivateKey: string) {
-    return approveScanPurchase({ ...this.config, payerPrivateKey }, prepared, this.request)
+    return approveScanPurchase({ ...this.paymentPolicy(), payerPrivateKey }, prepared, this.request)
   }
 }

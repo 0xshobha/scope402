@@ -308,14 +308,25 @@ test('SDK discovers and reads validated shared Tessera worlds without payment', 
         agent: 'agent:123456789abc' }], regions: [], reservations: [], leaderboard: [],
       recent_activity: [] })
   }
-  const client = new Scope402Client({ auditLabUrl: new URL('https://merchant.example'),
-    payer: '0.0.1001', merchant: '0.0.1002', maxPaymentTinybars: '100000' },
-  request as typeof fetch)
+  const client = new Scope402Client({ auditLabUrl: new URL('https://merchant.example') },
+    request as typeof fetch)
   const worlds = await client.listTesseraWorlds()
   const world = await client.readTesseraWorld('opal-world')
   assert.deepEqual(paths, ['/v1/canvases', '/v1/canvas/opal-world'])
   assert.equal(worlds[0]?.canvas_id, 'opal-world')
   assert.equal(world.pixels[0]?.color, '#7C4DFF')
+})
+
+test('SDK rejects paid work locally when a read-only client has no payment policy', async () => {
+  let calls = 0
+  const client = new Scope402Client({ auditLabUrl: new URL('https://merchant.example') },
+    (async () => { calls += 1; return Response.json({}) }) as typeof fetch)
+  assert.throws(() => client.prepareTessera({ subject: ephemeralSubject() }),
+    /Configure payer, merchant, and maxPaymentTinybars/)
+  assert.throws(() => client.prepareAuditLab({ subject: ephemeralSubject(),
+    repository: 'https://github.com/owner/repository' }),
+  /Configure payer, merchant, and maxPaymentTinybars/)
+  assert.equal(calls, 0)
 })
 
 test('SDK rejects invalid or mismatched world state before an agent can use it', async () => {
