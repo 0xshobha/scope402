@@ -325,7 +325,9 @@ node --env-file=/path/to/agent.env apps/agent/examples/autonomous-tessera-agent.
 
 It validates and prints the exact price, merchant, territory, and policy hash, then exits without moving HBAR.
 Only setting `SCOPE402_APPROVE_PAYMENT=yes` makes it approve the transaction, delegate a narrower worker
-capability, and place one worker pixel. Use that switch only with your own funded testnet payer and reviewed terms.
+capability, and place one worker pixel. The example emits structured `WORLD_DISCOVERED`,
+`PAYMENT_APPROVAL_REQUIRED`, `CAPABILITY_DELEGATED`, and `WORKER_PIXEL_PLACED` events so an agent log makes
+the complete infrastructure path auditable. Use that switch only with your own funded testnet payer and reviewed terms.
 
 Run the browser app locally:
 
