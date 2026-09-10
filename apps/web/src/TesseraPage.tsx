@@ -37,9 +37,9 @@ function updateMissionUrl(missionId: string) {
   window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`)
 }
 const actionLabels: Record<TesseraActionName, string> = {
-  delegate: '2 · GIVE WORKER LESS ACCESS', 'place-outside': '3 · TRY OUTSIDE ITS AREA',
-  'wrong-key': '4 · TRY A DIFFERENT KEY', 'place-inside': '5 · PLACE ALLOWED PIXEL', replay: '6 · REPLAY SAME REQUEST',
-  expire: '7 · EXPIRE AND RETRY',
+  delegate: '2 · GIVE WORKER LESS ACCESS', 'place-inside': '3 · PLACE ALLOWED PIXEL',
+  replay: '4 · REPLAY SAME REQUEST', 'place-outside': '5 · TRY OUTSIDE ITS AREA',
+  'wrong-key': '6 · TRY A DIFFERENT KEY', expire: '7 · EXPIRE AND RETRY',
 }
 
 type MissionTemplate = { id: string; name: string; description: string;
@@ -627,11 +627,11 @@ export function TesseraPage() {
         disabled={busy || !['PAYMENT_REQUIRED', 'PAYMENT_RECOVERY'].includes(state)} onClick={() => void approve()}>
         {state === 'PAYMENT_RECOVERY' ? '1 · RECOVER PAYMENT' : '1 · PAY FOR 8 × 8 AREA'}</button>
         <ActionButton action="delegate" disabled={busy || !rootReady || childReady} onClick={() => void act('delegate')} />
-        <ActionButton action="place-outside" disabled={busy || !childReady || completed.has('place-outside')} onClick={() => void act('place-outside')} />
-        <ActionButton action="wrong-key" disabled={busy || !completed.has('place-outside') || completed.has('wrong-key')} onClick={() => void act('wrong-key')} />
-        <ActionButton action="place-inside" disabled={busy || !completed.has('wrong-key') || completed.has('place-inside')} onClick={() => void act('place-inside')} />
+        <ActionButton action="place-inside" disabled={busy || !childReady || completed.has('place-inside')} onClick={() => void act('place-inside')} />
         <ActionButton action="replay" disabled={busy || !completed.has('place-inside') || completed.has('replay')} onClick={() => void act('replay')} />
-        <ActionButton action="expire" disabled={busy || !completed.has('replay') || completed.has('expire')} onClick={() => void act('expire')} />
+        <ActionButton action="place-outside" disabled={busy || !completed.has('replay') || completed.has('place-outside')} onClick={() => void act('place-outside')} />
+        <ActionButton action="wrong-key" disabled={busy || !completed.has('place-outside') || completed.has('wrong-key')} onClick={() => void act('wrong-key')} />
+        <ActionButton action="expire" disabled={busy || !completed.has('wrong-key') || completed.has('expire')} onClick={() => void act('expire')} />
       </div>
       {error && <div className="demo-error" role="alert"><strong>{runErrorHeading(error)}</strong>
         <code>{error}</code></div>}
