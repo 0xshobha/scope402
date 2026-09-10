@@ -63,8 +63,17 @@ export type TesseraRun = {
   root?: TesseraCapability
   child?: TesseraCapability
   actions: TesseraActionResult[]
+  paint_events: TesseraPaintResult[]
   last_action?: TesseraActionResult
   error?: { code: string; message: string }
+}
+
+export type TesseraPaintResult = {
+  request_id: string
+  status: 200
+  code: 'PIXEL_PLACED'
+  remaining_calls: number
+  pixel: { canvas_id: string; x: number; y: number; color: string; updated_at: number }
 }
 
 export type TesseraCanvas = {
@@ -144,7 +153,7 @@ function assertRun(value: TesseraRun): TesseraRun {
       !Array.isArray(value.actions)) {
     throw new Error('Hosted Tessera agent returned an invalid run')
   }
-  return value
+  return { ...value, paint_events: Array.isArray(value.paint_events) ? value.paint_events : [] }
 }
 
 export async function createTesseraRun() {
@@ -179,6 +188,16 @@ export async function executeTesseraAction(runId: string, token: string, action:
     signal: AbortSignal.timeout(120_000),
   })
   return readResponse<TesseraActionResult>(response)
+}
+
+export async function paintTesseraPixel(runId: string, token: string,
+  input: { request_id: string; x: number; y: number; color: string }) {
+  const response = await fetch(endpoint(agentBase,
+    `/tessera/runs/${encodeURIComponent(runId)}/paint`), {
+    method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify(input), signal: AbortSignal.timeout(30_000),
+  })
+  return readResponse<TesseraPaintResult>(response)
 }
 
 export async function getTesseraAgentHealth() {

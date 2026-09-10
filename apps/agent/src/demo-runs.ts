@@ -44,7 +44,7 @@ type InternalRun = {
 }
 
 export class DemoRunError extends Error {
-  constructor(readonly code: string, readonly status: 400 | 401 | 404 | 409 | 410 | 429 | 502,
+  constructor(readonly code: string, readonly status: 400 | 401 | 403 | 404 | 409 | 410 | 429 | 502,
     message: string) {
     super(message)
   }

@@ -35,6 +35,21 @@ export type TesseraActionResult = {
   pixel?: { canvas_id: string; x: number; y: number; color: string; updated_at: number }
 }
 
+export type TesseraPaintArgs = {
+  canvas_id: 'main'
+  x: number
+  y: number
+  color: string
+}
+
+export type TesseraPaintResult = {
+  request_id: string
+  status: 200
+  code: 'PIXEL_PLACED'
+  remaining_calls: number
+  pixel: { canvas_id: string; x: number; y: number; color: string; updated_at: number }
+}
+
 type ChildLease = {
   token: string
   lease_id: string
@@ -53,6 +68,7 @@ type ChildLease = {
 
 export type TesseraCapabilitySession = {
   execute(action: TesseraActionName): Promise<TesseraActionResult>
+  paint(args: TesseraPaintArgs, requestId: string): Promise<TesseraPaintResult>
   root(): PublicTesseraCapability
   child(): PublicTesseraCapability | undefined
 }
@@ -92,7 +108,9 @@ function publicChild(lease: ChildLease, remainingCalls: number): PublicTesseraCa
   }
 }
 
-function invocation(lease: ChildLease, args: object, counter: number) {
+type InvocationLease = Pick<ChildLease, 'lease_id'>
+
+function invocation(lease: InvocationLease, args: object, counter: number) {
   return {
     lease_id: lease.lease_id,
     tool_id: 'place_pixel',
@@ -121,6 +139,8 @@ export function createTesseraCapabilitySession(prepared: PreparedPlot, result: T
   let delegationRequestBody: string | undefined
   let delegationOperationId: string | undefined
   let sequence = 0
+  let rootCounter = 0
+  const rootRequests = new Map<string, { body: string; counter: number; argsHash: string }>()
 
   const output = (value: Omit<TesseraActionResult, 'sequence' | 'at'>): TesseraActionResult => ({
     sequence: ++sequence, at: new Date().toISOString(), ...value,
@@ -138,6 +158,12 @@ export function createTesseraCapabilitySession(prepared: PreparedPlot, result: T
     return JSON.stringify({ lease: childLease.token, args, counter, signature: subject.sign(claims) })
   }
 
+  const rootPlaceBody = (args: TesseraPaintArgs, counter: number) => {
+    const claims = invocation(result.lease, args, counter)
+    return JSON.stringify({ lease: result.lease.token, args, counter,
+      signature: prepared.subject.sign(claims) })
+  }
+
   const denial = async (response: Response, action: TesseraActionName,
     status: 403 | 410, code: TesseraActionResult['code']) => {
     const value = await body(response)
@@ -153,6 +179,33 @@ export function createTesseraCapabilitySession(prepared: PreparedPlot, result: T
   return {
     root: () => publicRoot(result, rootRemaining),
     child: () => childLease ? publicChild(childLease, childRemaining) : undefined,
+    async paint(args, requestId) {
+      let preparedRequest = rootRequests.get(requestId)
+      const argsHash = createHash('sha256').update(canonicalJson(args)).digest('hex')
+      if (preparedRequest && preparedRequest.argsHash !== argsHash) {
+        throw new Error('Paint request ID was reused with different arguments')
+      }
+      if (!preparedRequest) {
+        const counter = rootCounter + 1
+        preparedRequest = { counter, body: rootPlaceBody(args, counter), argsHash }
+        rootRequests.set(requestId, preparedRequest)
+      }
+      const response = await call(preparedRequest.body, requestId)
+      const value = await body(response)
+      if (response.status !== 200 || value?.status !== 'PIXEL_PLACED' ||
+          !Number.isSafeInteger(value.remaining_calls)) {
+        throw new Error(`Expected PIXEL_PLACED; Tessera returned HTTP ${response.status} ${String(value?.error ?? 'UNKNOWN')}`)
+      }
+      rootCounter = Math.max(rootCounter, preparedRequest.counter)
+      rootRemaining = Number(value.remaining_calls)
+      return {
+        request_id: requestId,
+        status: 200,
+        code: 'PIXEL_PLACED',
+        remaining_calls: rootRemaining,
+        pixel: record(value.pixel, 'Tessera returned no committed pixel') as TesseraPaintResult['pixel'],
+      }
+    },
     async execute(action) {
       if (action === 'delegate') {
         if (childLease) throw new Error('Worker capability already delegated')

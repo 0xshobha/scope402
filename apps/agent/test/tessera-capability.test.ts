@@ -29,6 +29,70 @@ function setup() {
   return { prepared, result, worker }
 }
 
+test('principal paints a chosen in-scope pixel with a private signed root invocation', async () => {
+  const { prepared, result, worker } = setup()
+  const requestId = '123e4567-e89b-42d3-a456-426614174099'
+  let calls = 0
+  const request = (async (input, init) => {
+    calls += 1
+    assert.equal(String(input), 'https://auditlab.example/v1/tools/place_pixel')
+    assert.equal(new Headers(init?.headers).get('Idempotency-Key'), requestId)
+    const sent = JSON.parse(String(init?.body)) as {
+      lease: string
+      args: { canvas_id: string; x: number; y: number; color: string }
+      counter: number
+      signature: string
+    }
+    assert.equal(sent.lease, result.lease.token)
+    assert.deepEqual(sent.args, { canvas_id: 'main', x: 9, y: 11, color: '#00D3F2' })
+    assert.equal(sent.counter, 1)
+    const header = JSON.parse(Buffer.from(sent.signature.split('.')[0]!, 'base64url').toString()) as {
+      subject_pubkey: string
+    }
+    assert.equal(header.subject_pubkey, prepared.subject.subjectPubkey)
+    return Response.json({ status: 'PIXEL_PLACED', lease_id: result.lease.lease_id, counter: 1,
+      pixel: { ...sent.args, updated_at: 123 }, remaining_calls: 11 })
+  }) as typeof fetch
+  const session = createTesseraCapabilitySession(prepared, result, 'x'.repeat(32), request, worker)
+
+  const painted = await session.paint({ canvas_id: 'main', x: 9, y: 11, color: '#00D3F2' }, requestId)
+  assert.equal(painted.code, 'PIXEL_PLACED')
+  assert.equal(painted.remaining_calls, 11)
+  assert.equal(session.root().remaining_calls, 11)
+  assert.equal(calls, 1)
+  await assert.rejects(session.paint(
+    { canvas_id: 'main', x: 10, y: 11, color: '#00D3F2' }, requestId), /different arguments/)
+  assert.equal(calls, 1)
+})
+
+test('principal paint retries a committed operation without consuming a second counter', async () => {
+  const { prepared, result, worker } = setup()
+  const requestId = '123e4567-e89b-42d3-a456-426614174098'
+  let attempts = 0
+  let committedBody = ''
+  const request = (async (_input, init) => {
+    attempts += 1
+    const requestBody = String(init?.body)
+    assert.equal(new Headers(init?.headers).get('Idempotency-Key'), requestId)
+    if (attempts === 1) {
+      committedBody = requestBody
+      throw new TypeError('response lost after commit')
+    }
+    assert.equal(requestBody, committedBody)
+    const sent = JSON.parse(requestBody) as { args: object; counter: number }
+    assert.equal(sent.counter, 1)
+    return Response.json({ status: 'PIXEL_PLACED', lease_id: result.lease.lease_id,
+      counter: 1, pixel: { ...sent.args, updated_at: 123 }, remaining_calls: 11 })
+  }) as typeof fetch
+  const session = createTesseraCapabilitySession(prepared, result, 'x'.repeat(32), request, worker)
+  const args = { canvas_id: 'main' as const, x: 9, y: 11, color: '#00D3F2' }
+
+  await assert.rejects(session.paint(args, requestId), /response lost after commit/)
+  assert.equal((await session.paint(args, requestId)).code, 'PIXEL_PLACED')
+  assert.equal(session.root().remaining_calls, 11)
+  assert.equal(attempts, 2)
+})
+
 test('Tessera session delegates a distinct worker and drives only fixed real API actions', async () => {
   const { prepared, result, worker } = setup()
   const requests: Array<{ url: string; body: string }> = []

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   approveTesseraRun, createTesseraRun, executeTesseraAction, getTesseraAgentHealth,
-  getTesseraCanvas, getTesseraRun,
+  getTesseraCanvas, getTesseraRun, paintTesseraPixel,
   publicTesseraAgentUrl, publicTesseraApiUrl,
   type CanvasRegion, type TesseraActionName, type TesseraActionResult,
   type TesseraCanvas, type TesseraCapability, type TesseraRun,
@@ -95,10 +95,16 @@ function PurchaseProof({ run }: { run?: TesseraRun }) {
   </section>
 }
 
-function CanvasPanel({ canvas, run, action }: {
+function CanvasPanel({ canvas, run, action, selected, onSelect, selectedColor, onColor, onPaint, paintDisabled }: {
   canvas?: TesseraCanvas
   run?: TesseraRun
   action?: TesseraActionResult
+  selected?: { x: number; y: number }
+  onSelect(x: number, y: number): void
+  selectedColor: string
+  onColor(color: string): void
+  onPaint(): void
+  paintDisabled: boolean
 }) {
   const pixels = useMemo(() => new Map((canvas?.pixels ?? []).map((pixel) => [`${pixel.x}:${pixel.y}`, pixel.color])), [canvas])
   const root = run?.root?.resource
@@ -109,13 +115,27 @@ function CanvasPanel({ canvas, run, action }: {
     const pixel = pixels.get(`${x}:${y}`)
     const rootCell = root && x >= root.x && x < root.x + root.width && y >= root.y && y < root.y + root.height
     const childCell = child && x >= child.x && x < child.x + child.width && y >= child.y && y < child.y + child.height
-    return <span key={`${x}:${y}`} className={`canvas-cell ${rootCell ? 'root-cell' : ''} ${childCell ? 'child-cell' : ''}`}
-      style={pixel ? { backgroundColor: pixel } : undefined} title={`${x},${y}${pixel ? ` · ${pixel}` : ''}`} />
+    const chosen = selected?.x === x && selected.y === y
+    return <button type="button" key={`${x}:${y}`}
+      className={`canvas-cell ${rootCell ? 'root-cell' : ''} ${childCell ? 'child-cell' : ''} ${chosen ? 'selected-cell' : ''}`}
+      style={pixel ? { backgroundColor: pixel } : undefined} title={`${x},${y}${pixel ? ` · ${pixel}` : ''}`}
+      aria-label={`Pixel ${x}, ${y}${rootCell ? ' in your region' : ''}`}
+      disabled={!rootCell || run?.state === 'COMPLETE'} onClick={() => onSelect(x, y)} />
   })
   return <section className="tessera-canvas-card" aria-label="Server authoritative canvas">
-    <div className="tessera-panel-head"><div><span className="section-label">LIVE SERVER CANVAS</span><h2>Only approved pixels land.</h2></div>
+    <div className="tessera-panel-head"><div><span className="section-label">SHARED AGENT WORLD</span><h2>Claim it. Paint it. Delegate it.</h2></div>
       <span className="mono canvas-size">32 × 32</span></div>
     <div className="canvas-wrap"><div className="canvas-grid">{cells}</div></div>
+    <div className="paint-console" aria-label="Paint controls">
+      <div className="pixel-palette">{(canvas?.palette ?? []).map((color) =>
+        <button type="button" key={color} className={selectedColor === color ? 'selected-color' : ''}
+          style={{ backgroundColor: color }} aria-label={`Select ${color}`} title={color}
+          onClick={() => onColor(color)} />)}</div>
+      <div className="paint-selection mono"><span>{selected ? `SELECTED · ${selected.x}, ${selected.y}` :
+        run?.root ? 'SELECT A PIXEL INSIDE YOUR OUTLINED REGION' : 'BUY A REGION TO START PAINTING'}</span>
+        <button className="button primary" type="button" onClick={onPaint} disabled={paintDisabled}>
+          PAINT WITH ROOT CAPABILITY</button></div>
+    </div>
     <div className="canvas-key mono"><span><i className="root-key" />ROOT REGION</span><span><i className="child-key" />CHILD REGION</span><span><i className="pixel-key" />SERVER PIXEL</span></div>
     {canvas ? <p className="canvas-note mono">POLLING SERVER STATE · {canvas.pixels.length} PIXELS · {canvas.regions.filter((region) => region.active).length} ACTIVE / {canvas.regions.length} HISTORICAL REGIONS</p> :
       <p className="canvas-note mono">WAITING FOR CANVAS STATE</p>}
@@ -149,6 +169,8 @@ export function TesseraPage() {
   const [error, setError] = useState('')
   const [agentHealth, setAgentHealth] = useState<'CHECKING' | 'WAKING' | 'ONLINE' | 'RETRYING'>('CHECKING')
   const [canvasHealth, setCanvasHealth] = useState<'CHECKING' | 'ONLINE' | 'UNAVAILABLE'>('CHECKING')
+  const [selectedPixel, setSelectedPixel] = useState<{ x: number; y: number }>()
+  const [selectedColor, setSelectedColor] = useState('#7C4DFF')
   const agentProbeFailures = useRef(0)
 
   const resetRun = () => {
@@ -158,6 +180,7 @@ export function TesseraPage() {
     setRunId('')
     setToken('')
     setError('')
+    setSelectedPixel(undefined)
   }
 
   const refresh = async (id = runId, credential = token) => {
@@ -272,6 +295,19 @@ export function TesseraPage() {
     } finally { setBusy(false) }
   }
 
+  const paint = async () => {
+    if (!runId || !token || !selectedPixel || busy) return
+    setBusy(true); setError('')
+    try {
+      await paintTesseraPixel(runId, token, { request_id: crypto.randomUUID(),
+        ...selectedPixel, color: selectedColor })
+      await refresh(runId, token)
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Tessera could not place the pixel')
+      try { await refresh() } catch { /* Preserve the original paint error. */ }
+    } finally { setBusy(false) }
+  }
+
   const rootReady = Boolean(run?.root)
   const childReady = Boolean(run?.child)
   const completed = new Set(run?.actions.map((item) => item.action) ?? [])
@@ -307,7 +343,11 @@ export function TesseraPage() {
 
     <PurchaseProof run={run} />
 
-    <div className="tessera-main-grid"><CapabilityTree run={run} /><CanvasPanel canvas={canvas} run={run} action={action} /></div>
+    <div className="tessera-main-grid"><CapabilityTree run={run} /><CanvasPanel canvas={canvas} run={run} action={action}
+      selected={selectedPixel} onSelect={(x, y) => setSelectedPixel({ x, y })}
+      selectedColor={selectedColor} onColor={setSelectedColor} onPaint={() => void paint()}
+      paintDisabled={busy || !rootReady || !selectedPixel || state === 'COMPLETE' ||
+        (!childReady && (run?.root?.remaining_calls ?? 0) <= 1) || (run?.root?.remaining_calls ?? 0) < 1} /></div>
 
     <section className="tessera-control"><div className="section-label">FOLLOW THE PROOF</div><h2>Pay once.<br/><em>Test every limit.</em></h2>
       <p>Use the buttons from left to right. The server chooses the keys, areas, and requests, so the page cannot fake a successful action.</p>

@@ -129,6 +129,37 @@ export function createDemoAgentApp(service: DemoRunService, allowedOrigins: Set<
       return demoError(c, error)
     }
   })
+  app.post('/tessera/runs/:runId/paint', async (c) => {
+    try {
+      if (!tessera) throw new DemoRunError('TESSERA_UNAVAILABLE', 404, 'Tessera agent is not configured')
+      let value: unknown
+      try {
+        value = await c.req.json()
+      } catch {
+        throw new DemoRunError('INVALID_REQUEST', 400, 'Expected valid JSON')
+      }
+      if (!value || typeof value !== 'object' || Array.isArray(value)) {
+        throw new DemoRunError('INVALID_REQUEST', 400, 'Expected a JSON object')
+      }
+      const body = value as Record<string, unknown>
+      const keys = Object.keys(body).sort()
+      if (keys.join(',') !== 'color,request_id,x,y' ||
+          typeof body.request_id !== 'string' ||
+          !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(body.request_id) ||
+          !Number.isSafeInteger(body.x) || !Number.isSafeInteger(body.y) ||
+          Number(body.x) < 0 || Number(body.x) >= 32 ||
+          Number(body.y) < 0 || Number(body.y) >= 32 ||
+          typeof body.color !== 'string' || !/^#[0-9A-F]{6}$/.test(body.color)) {
+        throw new DemoRunError('INVALID_REQUEST', 400,
+          'Paint accepts only a request_id, integer canvas coordinate, and uppercase hex palette color')
+      }
+      return c.json(await tessera.paint(c.req.param('runId'),
+        bearer(c.req.header('Authorization')), body.request_id,
+        { x: Number(body.x), y: Number(body.y), color: body.color }))
+    } catch (error) {
+      return demoError(c, error)
+    }
+  })
   app.post('/tessera/runs/:runId/actions/:action', async (c) => {
     try {
       if (!tessera) throw new DemoRunError('TESSERA_UNAVAILABLE', 404, 'Tessera agent is not configured')

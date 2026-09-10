@@ -11,8 +11,8 @@ calls to `finding_details` for five minutes.
 
 Tessera reuses the same authorization kernel for a spatial resource: a principal purchases an `8 × 8`
 paint capability, then delegates a strictly narrower, conserved call budget to a different P-256 worker.
-Its public browser flow prepares and recovers the quote, performs the guarded testnet purchase, and drives the
-fixed delegation, pixel, boundary, wrong-key, replay, and expiry sequence without exposing private keys.
+Its public browser flow prepares and recovers the quote, performs the guarded testnet purchase, lets the player
+paint inside the purchased region, and drives a fixed delegation and denial proof without exposing private keys.
 
 Public API: [scope402-auditlab.onrender.com](https://scope402-auditlab.onrender.com/health)
 
@@ -82,6 +82,8 @@ charging for every call or exposing a broad bearer credential:
   payment lineage, separate delegation replay counters, and conserved parent/child budgets
 - guarded Tessera browser orchestration with prepare-before-pay approval, refresh recovery, and fixed
   server-generated delegation and attack actions
+- player-selected Tessera pixels and palette colors signed by the guarded principal agent, with idempotent retries
+  and server-enforced region and call-budget limits
 
 AuditLab exposes `finding_details`; Tessera exposes `place_pixel`. Both have public payment-to-denial proof,
 with exact transactions and outcomes recorded below.
@@ -196,8 +198,8 @@ immutable lineage, root expiry, budget conservation, and concurrent invocation/d
 - API and browser app are public; `/demo` can request a quote and ask a dedicated hosted testnet agent to purchase it
 - the hosted demo payer is separate from the merchant and policy-limited; the browser never receives payment or capability keys
 - completed paid retries return the original scan and ToolLease instead of granting fresh authority
-- browser actions are fixed requests to the hosted agent; keys, lease tokens, signatures, and demo-control secrets
-  remain outside the browser
+- browser proof actions are fixed requests, while Tessera painting accepts only a pixel, palette color, and opaque
+  request ID; keys, lease tokens, signatures, counters, payment fields, and demo-control secrets remain outside the browser
 - hosted-agent run and abuse-control state is intentionally single-instance and in memory for this public testnet
   demonstration; a hosted-agent restart clears browser-run recovery and rate-limit state, and multiple agent instances
   would not share those controls. Durable merchant state—including quotes, settlements, leases, replay counters, budgets,

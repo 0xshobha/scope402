@@ -324,9 +324,19 @@ footer a:hover { color: var(--violet); }
 .canvas-size { padding: 7px 9px; border: 1.5px solid var(--ink); background: var(--panel); font-size: 12px; white-space: nowrap; }
 .canvas-wrap { width: min(100%, 470px); margin: 0 auto; padding: 11px; border: 1.5px solid var(--ink); background: var(--paper); }
 .canvas-grid { display: grid; grid-template-columns: repeat(32, 1fr); width: 100%; aspect-ratio: 1; border: 1px solid var(--ink); }
-.canvas-cell { min-width: 0; min-height: 0; position: relative; background: var(--panel); border-right: 1px solid #d5d1c8; border-bottom: 1px solid #d5d1c8; }
+.canvas-cell { min-width: 0; min-height: 0; padding: 0; position: relative; background: var(--panel); border: 0; border-right: 1px solid #d5d1c8; border-bottom: 1px solid #d5d1c8; }
+.canvas-cell:not(:disabled) { cursor: crosshair; }
+.canvas-cell:disabled { opacity: 1; }
 .canvas-cell.root-cell { box-shadow: inset 1px 0 var(--violet), inset 0 1px var(--violet), inset -1px 0 var(--violet), inset 0 -1px var(--violet); }
 .canvas-cell.child-cell { box-shadow: inset 2px 0 var(--ink), inset 0 2px var(--ink), inset -2px 0 var(--ink), inset 0 -2px var(--ink); z-index: 1; }
+.canvas-cell.selected-cell::after { content: ''; position: absolute; inset: 1px; border: 2px solid var(--amber); z-index: 3; }
+.paint-console { margin-top: 18px; padding-top: 18px; border-top: 1.5px solid var(--ink); }
+.pixel-palette { display: grid; grid-template-columns: repeat(8, minmax(28px, 1fr)); gap: 7px; }
+.pixel-palette button { min-height: 34px; border: 1.5px solid var(--ink); cursor: pointer; }
+.pixel-palette button.selected-color { outline: 3px solid var(--amber); outline-offset: 2px; }
+.paint-selection { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-top: 16px; font-size: 12px; line-height: 1.4; }
+.paint-selection .button { flex: none; cursor: pointer; }
+.paint-selection .button:disabled { cursor: default; opacity: .45; }
 .canvas-key { display: flex; flex-wrap: wrap; gap: 12px 18px; margin-top: 19px; font-size: 12px; }
 .canvas-key span { display: inline-flex; align-items: center; gap: 6px; }
 .canvas-key i { display: inline-block; width: 12px; height: 12px; border: 1.5px solid var(--ink); background: var(--panel); }
@@ -416,4 +426,6 @@ footer a:hover { color: var(--violet); }
   .settlement-proof { align-items: flex-start; flex-direction: column; }
   .tessera-action-grid { display: grid; grid-template-columns: 1fr; }
   .tessera-action-grid .button { width: 100%; justify-content: center; }
+  .paint-selection { align-items: stretch; flex-direction: column; }
+  .paint-selection .button { width: 100%; justify-content: center; }
 }

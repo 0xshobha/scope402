@@ -157,7 +157,10 @@ test('Tessera HTTP boundary accepts no browser-controlled payment or authority f
       resource: region, tool_ids: ['place_pixel'], max_calls: 12, remaining_calls: 12,
       exp: result.lease.exp, root_lease_id: 'root', payment_quote_id: result.lease.offer_id,
       hedera_tx_id: result.lease.hedera_tx_id, policy_hash: result.lease.policy_hash }),
-    child: () => undefined, execute: async () => { throw new Error('not reached') } }),
+    child: () => undefined,
+    paint: async (args, requestId) => ({ request_id: requestId, status: 200,
+      code: 'PIXEL_PLACED', remaining_calls: 11, pixel: { ...args, updated_at: 1 } }),
+    execute: async () => { throw new Error('not reached') } }),
   }, limits, guard)
   const app = createDemoAgentApp(audit, new Set(), 'none', tessera)
   const injectedCreate = await app.request('/tessera/runs', { method: 'POST',
@@ -178,4 +181,23 @@ test('Tessera HTTP boundary accepts no browser-controlled payment or authority f
     body: JSON.stringify({ lease: 'caller-controlled', x: 31 }),
   })
   assert.equal(injectedAction.status, 400)
+  const approved = await app.request(`/tessera/runs/${run.run.run_id}/approve`, {
+    method: 'POST', headers: { Authorization: `Bearer ${run.run_token}` }, body: '{}',
+  })
+  assert.equal(approved.status, 200)
+  const injectedPaint = await app.request(`/tessera/runs/${run.run.run_id}/paint`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json',
+      Authorization: `Bearer ${run.run_token}` },
+    body: JSON.stringify({ request_id: '123e4567-e89b-42d3-a456-426614174099',
+      x: 2, y: 2, color: '#00D3F2', lease: 'caller-controlled' }),
+  })
+  assert.equal(injectedPaint.status, 400)
+  const painted = await app.request(`/tessera/runs/${run.run.run_id}/paint`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json',
+      Authorization: `Bearer ${run.run_token}` },
+    body: JSON.stringify({ request_id: '123e4567-e89b-42d3-a456-426614174099',
+      x: 2, y: 2, color: '#00D3F2' }),
+  })
+  assert.equal(painted.status, 200)
+  assert.equal((await painted.json() as { code: string }).code, 'PIXEL_PLACED')
 })

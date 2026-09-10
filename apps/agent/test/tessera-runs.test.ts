@@ -69,6 +69,9 @@ function service(overrides: Partial<{
         payment_quote_id: result.lease.offer_id, hedera_tx_id: result.lease.hedera_tx_id,
         policy_hash: result.lease.policy_hash }),
       child: () => executions ? child : undefined,
+      paint: async (args, requestId) => ({ request_id: requestId, status: 200,
+        code: 'PIXEL_PLACED', remaining_calls: 11,
+        pixel: { ...args, updated_at: 1 } }),
       execute: async (action: TesseraActionName) => {
         executions += 1
         const codes = { delegate: 'CAPABILITY_DELEGATED', 'place-outside': 'OUT_OF_SCOPE',
@@ -163,6 +166,28 @@ test('Tessera actions enforce order and are idempotent', async () => {
   assert.equal(run.last_action?.code, 'LEASE_EXPIRED')
 })
 
+test('authenticated player painting is in-scope, idempotent, and publicly recoverable', async () => {
+  const setup = service()
+  const created = await setup.instance.create('203.0.113.30')
+  const requestId = '123e4567-e89b-42d3-a456-426614174099'
+  await assert.rejects(Promise.resolve().then(() => setup.instance.paint(
+    created.run.run_id, created.run_token, requestId, { x: 2, y: 2, color: '#00D3F2' })),
+  /Buy a Tessera region/)
+  await setup.instance.approve(created.run.run_id, created.run_token)
+
+  const painted = await setup.instance.paint(created.run.run_id, created.run_token,
+    requestId, { x: 2, y: 2, color: '#00D3F2' })
+  const retried = await setup.instance.paint(created.run.run_id, created.run_token,
+    requestId, { x: 2, y: 2, color: '#00D3F2' })
+  assert.deepEqual(retried, painted)
+  assert.equal(setup.instance.get(created.run.run_id, created.run_token).paint_events.length, 1)
+  assert.throws(() => setup.instance.paint(created.run.run_id, created.run_token,
+    requestId, { x: 3, y: 2, color: '#00D3F2' }), /already used/)
+  assert.throws(() => setup.instance.paint(created.run.run_id, created.run_token,
+    '123e4567-e89b-42d3-a456-426614174098', { x: 8, y: 2, color: '#00D3F2' }),
+  /inside the purchased root region/)
+})
+
 test('a failed Tessera action can be recovered instead of caching rejection forever', async () => {
   const data = fixture()
   let executions = 0
@@ -179,6 +204,7 @@ test('a failed Tessera action can be recovered instead of caching rejection fore
         hedera_tx_id: data.result.lease.hedera_tx_id,
         policy_hash: data.result.lease.policy_hash }),
       child: () => undefined,
+      paint: async () => { throw new Error('not reached') },
       execute: async (action) => {
         executions += 1
         if (executions === 1) throw new TypeError('response lost')

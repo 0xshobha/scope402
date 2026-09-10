@@ -3,7 +3,8 @@ import { DemoRunError, type DemoRunLimits } from './demo-runs.js'
 import { HostedAgentGuard, HostedAgentLimitError } from './hosted-payment-guard.js'
 import { ExactPaymentDeliveryError } from './payment-client.js'
 import { ephemeralSubject, type AgentSubject } from './subject.js'
-import type { PublicTesseraCapability, TesseraActionName, TesseraActionResult,
+import type { PublicTesseraCapability, TesseraActionName, TesseraActionResult, TesseraPaintArgs,
+  TesseraPaintResult,
   TesseraCapabilitySession } from './tessera-capability.js'
 import type { PreparedPlot, TesseraPlotResult } from './tessera-purchase.js'
 
@@ -31,6 +32,7 @@ export type PublicTesseraRun = {
   child?: PublicTesseraCapability
   actions: TesseraActionResult[]
   last_action?: TesseraActionResult
+  paint_events: TesseraPaintResult[]
   error?: { code: string; message: string }
 }
 
@@ -45,7 +47,9 @@ type InternalRun = {
   approval?: Promise<PublicTesseraRun>
   paymentAttempted?: boolean
   actionAttempts: Map<TesseraActionName, Promise<TesseraActionResult>>
-  activeAction?: TesseraActionName
+  paintAttempts: Map<string, { args: Omit<TesseraPaintArgs, 'canvas_id'>;
+    promise: Promise<TesseraPaintResult> }>
+  activeAction?: TesseraActionName | 'paint'
 }
 
 export type TesseraRunDependencies = {
@@ -108,10 +112,11 @@ export class TesseraRunService {
         merchant: prepared.terms.payTo, network: 'hedera:testnet', asset: '0.0.0',
       },
       actions: [],
+      paint_events: [],
     }
     this.runs.set(runId, { public: publicRun, ip,
       tokenHash: createHash('sha256').update(token).digest(), prepared, worker,
-      actionAttempts: new Map() })
+      actionAttempts: new Map(), paintAttempts: new Map() })
     return { run: structuredClone(publicRun), run_token: token }
   }
 
@@ -201,6 +206,61 @@ export class TesseraRunService {
       }
     })()
     return run.approval
+  }
+
+  paint(runId: string, token: string, requestId: string,
+    args: Omit<TesseraPaintArgs, 'canvas_id'>) {
+    const run = this.authorized(runId, token)
+    if (!run.result || !run.capability) {
+      throw new DemoRunError('DEMO_RUN_INCOMPLETE', 409,
+        'Buy a Tessera region before painting it')
+    }
+    if (run.public.state === 'COMPLETE') {
+      throw new DemoRunError('DEMO_RUN_COMPLETE', 409, 'This Tessera capability has expired')
+    }
+    const completed = run.public.paint_events.find((item) => item.request_id === requestId)
+    if (completed) {
+      if (completed.pixel.x !== args.x || completed.pixel.y !== args.y || completed.pixel.color !== args.color) {
+        throw new DemoRunError('IDEMPOTENCY_KEY_REUSED', 409,
+          'Paint request ID was already used for a different pixel')
+      }
+      return Promise.resolve(structuredClone(completed))
+    }
+    const active = run.paintAttempts.get(requestId)
+    if (active) {
+      if (active.args.x !== args.x || active.args.y !== args.y || active.args.color !== args.color) {
+        throw new DemoRunError('IDEMPOTENCY_KEY_REUSED', 409,
+          'Paint request ID is active for a different pixel')
+      }
+      return active.promise
+    }
+    if (run.activeAction) {
+      throw new DemoRunError('DEMO_ACTION_BUSY', 409, 'Another Tessera action is still running')
+    }
+    const root = run.public.root
+    if (!root || args.x < root.resource.x || args.y < root.resource.y ||
+        args.x >= root.resource.x + root.resource.width ||
+        args.y >= root.resource.y + root.resource.height) {
+      throw new DemoRunError('OUT_OF_SCOPE', 403, 'Choose a pixel inside the purchased root region')
+    }
+    run.activeAction = 'paint'
+    run.public.state = 'ACTION_PENDING'
+    const attempt = run.capability.paint({ canvas_id: 'main', ...args }, requestId).then((result) => {
+      run.public.paint_events.push(result)
+      run.public.root = run.capability!.root()
+      run.public.state = run.public.child ? 'CHILD_ACTIVE' : 'ROOT_ACTIVE'
+      run.activeAction = undefined
+      return structuredClone(result)
+    }).catch((error: unknown) => {
+      run.activeAction = undefined
+      run.paintAttempts.delete(requestId)
+      run.public.state = run.public.child ? 'CHILD_ACTIVE' : 'ROOT_ACTIVE'
+      this.dependencies.logError?.(error instanceof Error ? error.message : 'Unknown Tessera paint failure')
+      throw new DemoRunError('DEMO_PAINT_FAILED', 502,
+        error instanceof Error ? error.message : 'Hosted Tessera agent could not place the pixel')
+    })
+    run.paintAttempts.set(requestId, { args: { ...args }, promise: attempt })
+    return attempt
   }
 
   action(runId: string, token: string, action: TesseraActionName) {
