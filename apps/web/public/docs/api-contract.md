@@ -1,6 +1,6 @@
 # Scope402 HTTP and signing contract
 
-Contract snapshot: 6 September 2026. x402 v2; Scope402 extension `info.version = 1`; discovery `version = 1`. These are different version fields. This document describes the implemented reference API, not a platform-wide SDK guarantee.
+Contract snapshot: 10 September 2026. x402 v2; Scope402 extension `info.version = 1`; discovery `version = 1`. These are different version fields. This document describes the implemented reference API, not a platform-wide SDK guarantee.
 
 Base URL: `https://scope402-auditlab.onrender.com`. Use HTTPS for remote clients. Documentation and [Tessera OpenAPI](https://scope402.onrender.com/openapi.json) live on the separate website origin. The OpenAPI file covers Tessera and public metadata, not hosted-agent administration or AuditLab schemas.
 
@@ -11,7 +11,9 @@ Base URL: `https://scope402-auditlab.onrender.com`. Use HTTPS for remote clients
 | `GET /health` | `{ "ok": true, "service": "auditlab" }`; process health only |
 | `GET /.well-known/scope402` | Known-origin resource and tool metadata |
 | `GET /v1/canvas` | Canvas dimensions, palette, persisted pixels and root regions |
-| `POST /v1/plots` | `{ "canvas_id": "main", "subject_pubkey": "<SPKI key>" }`; exactly those two properties |
+| `GET /v1/canvas/{canvas_id}` | One named world's server-authoritative state, activity and contributor ranking |
+| `GET /v1/canvases` | Public world catalogue; does not reserve or pay |
+| `POST /v1/plots` | `{ "canvas_id": "<safe-world-slug>", "subject_pubkey": "<SPKI key>", "slot"?: 0..15 }`; no other properties |
 | `POST /v1/scans` | `{ "repo_url": "https://github.com/owner/repository", "subject_pubkey": "<SPKI key>" }` |
 | `POST /v1/tools/place_pixel` | Signed invocation envelope below |
 | `POST /v1/tools/finding_details` | Same invocation envelope, `args = { "finding_id": "<returned finding ID>" }` |
@@ -37,7 +39,7 @@ quote: Tessera { canvas_id, region, pricing }
 
 Current payment terms use `exact`, `hedera:testnet`, and native HBAR asset `0.0.0`. Prices are decimal strings in tinybars. Read facilitator fee-payer information from its current `/supported` response. Never choose a destination or spending cap solely because remote metadata asks for it.
 
-The merchant selects the Tessera 8 × 8 region; callers cannot supply a root rectangle. Default Tessera pricing is 50,000 + 500 × 12 = 56,000 tinybars, configurable server-side. Root budget is 12 calls. AuditLab binds an exact commit and prices bounded root entries. Quote validity/reservation is five minutes; the 300-second lease lifetime starts at issuance. `maxTimeoutSeconds` is a separate payment field.
+The caller may select one of sixteen fixed Tessera `8 × 8` slots, or omit `slot` and let the merchant select the first available one. Callers cannot supply an arbitrary root rectangle. `canvas_id` is `main` or a safe 3–32 character lowercase slug; the first quote provisionally creates a named world. Empty worlds created only by abandoned unpaid quotes may be reclaimed after the five-minute reservation expires. A paid, painted, allocated, protected-settlement, or active-reservation world is not reclaimed by this cleanup path. Default Tessera pricing is 50,000 + 500 × 12 = 56,000 tinybars, configurable server-side. Root budget is 12 calls. AuditLab binds an exact commit and prices bounded root entries. Quote validity/reservation is five minutes; the 300-second lease lifetime starts at issuance. `maxTimeoutSeconds` is a separate payment field.
 
 To pay, validate the approved origin/path, merchant, payer separation, network, asset, amount, subject, resource, audience, tools, budget, lifetime, schema and policy hash. Retry the same body at the returned quoted URL with an SDK-encoded `PAYMENT-SIGNATURE`. Echo the approved x402 resource, accepted requirements and extensions exactly. Use the existing agent purchase helpers; do not invent a transfer payload.
 
@@ -47,7 +49,7 @@ To pay, validate the approved origin/path, merchant, payer separation, network, 
 version: 1
 subject: { scheme: "p256", publicKey: "<subject SPKI>" }
 audience: "https://scope402-auditlab.onrender.com/v1/tools"
-resource: { kind: "canvas-region", canvasId: "main", x, y, width, height }
+resource: { kind: "canvas-region", canvasId: "<safe-world-slug>", x, y, width, height }
           or { kind: "github-repository", id: "owner/repo", revision: "<40-char SHA>" }
 tools: ["place_pixel"] or ["finding_details"]
 maxCalls: 12 or 3
@@ -64,7 +66,7 @@ The Hedera transfer does not itself cryptographically commit this policy. The ap
 HTTP 200 plus `PAYMENT-RESPONSE` is the successful paid response. Decode and validate the settlement header. Tessera's JSON body is:
 
 ```text
-{ status: "complete", canvas_id: "main", region,
+{ status: "complete", canvas_id: "<safe-world-slug>", region,
   payment: { payer, merchant, amount_tinybars, transaction, hashscan_url },
   lease: { token, lease_id, subject_pubkey, aud, catalogue_hash, tool_ids,
            max_calls, exp, offer_id, hedera_tx_id, policy_hash,
@@ -83,7 +85,7 @@ Request body:
 
 ```text
 { lease: "<service-signed compact JWS>",
-  args: { canvas_id: "main", x: <integer>, y: <integer>, color: "<palette value>" },
+  args: { canvas_id: "<purchased-world-slug>", x: <integer>, y: <integer>, color: "<palette value>" },
   counter: <next positive safe integer>,
   signature: "<subject-signed compact JWS>" }
 ```
@@ -110,7 +112,7 @@ The `delegation` JWS uses type `scope402-delegation+jws` and the same ES256/JCS/
 
 ```text
 { parent_lease_id, child_subject_pubkey,
-  resource: { kind: "canvas-region", canvasId: "main", x, y, width, height },
+  resource: { kind: "canvas-region", canvasId: "<purchased-world-slug>", x, y, width, height },
   tool_ids: ["place_pixel"], max_calls: <reserved child calls>,
   expires_at: <future Unix seconds no later than root expiry>,
   counter: <next delegation counter>, issued_at: <Unix seconds> }

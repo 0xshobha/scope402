@@ -6,13 +6,21 @@ import { meterPlot, parsePlotRequest, plotPricingConfig, plotResourceUrl } from 
 const { publicKey } = generateKeyPairSync('ec', { namedCurve: 'prime256v1' })
 const subject = publicKey.export({ format: 'der', type: 'spki' }).toString('base64url')
 
-test('accepts only the fixed Tessera canvas and a P-256 subject', () => {
+test('accepts safe canvas slugs, optional territory, and a P-256 subject', () => {
   assert.deepEqual(parsePlotRequest({ canvas_id: 'main', subject_pubkey: subject }),
     { canvas_id: 'main', subject_pubkey: subject })
+  assert.deepEqual(parsePlotRequest({ canvas_id: 'main', subject_pubkey: subject, slot: 15 }),
+    { canvas_id: 'main', subject_pubkey: subject, slot: 15 })
+  assert.deepEqual(parsePlotRequest({ canvas_id: 'agent-garden', subject_pubkey: subject, slot: 0 }),
+    { canvas_id: 'agent-garden', subject_pubkey: subject, slot: 0 })
   for (const request of [
-    {}, { canvas_id: 'other', subject_pubkey: subject },
+    {}, { canvas_id: 'UPPERCASE', subject_pubkey: subject },
+    { canvas_id: '../escape', subject_pubkey: subject },
     { canvas_id: 'main', subject_pubkey: 'bad' },
     { canvas_id: 'main', subject_pubkey: subject, amount: '1' },
+    { canvas_id: 'main', subject_pubkey: subject, slot: -1 },
+    { canvas_id: 'main', subject_pubkey: subject, slot: 16 },
+    { canvas_id: 'main', subject_pubkey: subject, slot: 1.5 },
   ]) assert.throws(() => parsePlotRequest(request))
 })
 

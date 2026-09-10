@@ -35,6 +35,7 @@ type IssuedRoot = Awaited<ReturnType<typeof fulfillPaidPlot>> & {
 
 async function cleanTessera() {
   await database().query(`DELETE FROM scope402_operation_receipts`)
+  await database().query(`DELETE FROM tessera_pixel_events`)
   await database().query(`DELETE FROM tessera_pixels`)
   await database().query(
     `DELETE FROM plot_jobs
@@ -50,10 +51,13 @@ async function cleanTessera() {
        reservation_expires_at = NULL, transaction_id = NULL`,
   )
   await database().query(`DELETE FROM payment_quotes WHERE merchant_id = 'tessera'`)
+  await database().query(`DELETE FROM tessera_slots WHERE canvas_id <> 'main'`)
+  await database().query(`DELETE FROM tessera_canvases WHERE canvas_id <> 'main'`)
 }
 
-async function issueRoot(): Promise<IssuedRoot> {
-  const quote = await createPlotQuote(subjectPubkey, endpoint, requirements, pricing, audience)
+async function issueRoot(rootSubjectPubkey = subjectPubkey, canvasId = 'main'): Promise<IssuedRoot> {
+  const quote = await createPlotQuote(rootSubjectPubkey, endpoint, requirements, pricing, audience,
+    undefined, canvasId)
   const transactionId = `0.0.1001@1788617000.${String(transactionSequence++).padStart(9, '0')}`
   const receipt = { success: true as const, network: 'hedera:testnet' as const,
     transaction: transactionId, payer }
@@ -62,7 +66,7 @@ async function issueRoot(): Promise<IssuedRoot> {
      VALUES ($1, $2, 'settled', $3, $4)`,
     [transactionId, quote.quoteId, payer, JSON.stringify(receipt)],
   )
-  return fulfillPaidPlot({ transactionId, quoteId: quote.quoteId, subjectPubkey,
+  return fulfillPaidPlot({ transactionId, quoteId: quote.quoteId, subjectPubkey: rootSubjectPubkey,
     requirements, receipt, policy: quote.extensions.scope402.info }) as Promise<IssuedRoot>
 }
 
@@ -120,7 +124,13 @@ test('Tessera enforces canvas authority and pixel mutation atomically', async (t
     assert.equal(canvas.width, 32)
     assert.equal(canvas.height, 32)
     assert.equal(canvas.palette.length, 8)
+    assert.deepEqual(canvas.world, { name: 'Opal World', painted_pixels: 0,
+      total_placements: 0, total_pixels: 1024, completion_percent: 0, current_painters: 0,
+      active_territories: 0, reserved_territories: 0 })
     assert.deepEqual(canvas.pixels, [])
+    assert.deepEqual(canvas.leaderboard, [])
+    assert.deepEqual(canvas.recent_activity, [])
+    assert.deepEqual(canvas.reservations, [])
   })
 
   await t.test('an in-scope pixel commits and a fresh counter may repaint it', async () => {
@@ -133,13 +143,61 @@ test('Tessera enforces canvas authority and pixel mutation atomically', async (t
     const second = await place(signedPixelBody(issued, repaint, 2))
     assert.equal(second.status, 200)
     assert.equal((await second.json()).remaining_calls, 10)
+    const competitorSubject = generateKeyPairSync('ec', { namedCurve: 'prime256v1' })
+    const competitorPubkey = competitorSubject.publicKey.export(
+      { format: 'der', type: 'spki' }).toString('base64url')
+    const competitor = await issueRoot(competitorPubkey)
+    const competitorPixels = [
+      { canvas_id: 'main', x: competitor.region.x, y: competitor.region.y, color: '#C6F432' },
+      { canvas_id: 'main', x: competitor.region.x + 1, y: competitor.region.y, color: '#FFB020' },
+    ]
+    assert.equal((await place(signedPixelBody(competitor, competitorPixels[0]!, 1,
+      competitorSubject.privateKey, competitorPubkey))).status, 200)
+    assert.equal((await place(signedPixelBody(competitor, competitorPixels[1]!, 2,
+      competitorSubject.privateKey, competitorPubkey))).status, 200)
     assert.deepEqual(await capabilityState(issued.lease.lease_id),
       { used_calls: 2, last_counter: 2 })
     const canvas = await (await app.request('/v1/canvas')).json()
     assert.equal(canvas.pixels.find((pixel: PixelArgs) =>
       pixel.x === args.x && pixel.y === args.y).color, '#00D3F2')
+    assert.match(canvas.pixels[0].agent, /^agent:[0-9a-f]{12}$/)
+    assert.deepEqual(canvas.world, { name: 'Opal World', painted_pixels: 3,
+      total_placements: 4, total_pixels: 1024, completion_percent: 0.29, current_painters: 2,
+      active_territories: 2, reserved_territories: 0 })
+    assert.equal(canvas.leaderboard.length, 2)
+    assert.equal(canvas.leaderboard[0].placements, 2)
+    assert.equal(canvas.leaderboard[1].placements, 2)
+    assert.equal(canvas.recent_activity.length, 4)
+    assert.equal(canvas.recent_activity[0].painted_at >= canvas.recent_activity[1].painted_at, true)
+    assert.equal(canvas.recent_activity.some((pixel: PixelArgs) => pixel.color === '#7C4DFF'), true)
     assert.equal(canvas.regions.some((region: { lease_id: string }) =>
       region.lease_id === issued.lease.lease_id), true)
+    assert.match(canvas.regions.find((region: { lease_id: string }) =>
+      region.lease_id === issued.lease.lease_id).agent, /^agent:[0-9a-f]{12}$/)
+  })
+
+  await t.test('a custom-world capability cannot paint the same point in another world', async () => {
+    const issued = await issueRoot(subjectPubkey, 'agent-garden')
+    const customArgs = { canvas_id: 'agent-garden', x: issued.region.x,
+      y: issued.region.y, color: '#FFB020' }
+    const painted = await place(signedPixelBody(issued, customArgs, 1))
+    assert.equal(painted.status, 200)
+    const mainBefore = (await database().query(
+      `SELECT count(*)::integer AS count FROM tessera_pixels WHERE canvas_id = 'main'`)).rows[0].count
+    const denied = await place(signedPixelBody(issued, { ...customArgs, canvas_id: 'main' }, 2))
+    assert.equal(denied.status, 403)
+    assert.equal((await denied.json()).error, 'OUT_OF_SCOPE')
+    assert.deepEqual(await capabilityState(issued.lease.lease_id),
+      { used_calls: 1, last_counter: 1 })
+    assert.equal((await database().query(
+      `SELECT count(*)::integer AS count FROM tessera_pixels WHERE canvas_id = 'main'`)).rows[0].count,
+    mainBefore)
+    assert.equal((await database().query(
+      `SELECT count(*)::integer AS count FROM tessera_pixel_events
+       WHERE canvas_id = 'agent-garden' AND lease_id = $1`, [issued.lease.lease_id])).rows[0].count, 1)
+    const world = await (await app.request('/v1/canvas/agent-garden')).json()
+    assert.equal(world.pixels.length, 1)
+    assert.equal(world.world.total_placements, 1)
   })
 
   await t.test('an out-of-scope coordinate does not paint or consume', async () => {
@@ -153,6 +211,9 @@ test('Tessera enforces canvas authority and pixel mutation atomically', async (t
       { used_calls: 0, last_counter: 0 })
     assert.equal((await database().query(
       `SELECT count(*)::int AS count FROM tessera_pixels WHERE lease_id = $1`,
+      [issued.lease.lease_id])).rows[0].count, 0)
+    assert.equal((await database().query(
+      `SELECT count(*)::int AS count FROM tessera_pixel_events WHERE lease_id = $1`,
       [issued.lease.lease_id])).rows[0].count, 0)
   })
 
@@ -194,6 +255,9 @@ test('Tessera enforces canvas authority and pixel mutation atomically', async (t
     assert.equal((await denied.json()).error, 'REPLAY_DETECTED')
     assert.deepEqual(await capabilityState(issued.lease.lease_id),
       { used_calls: 1, last_counter: 1 })
+    assert.equal((await database().query(
+      `SELECT count(*)::int AS count FROM tessera_pixel_events WHERE lease_id = $1`,
+      [issued.lease.lease_id])).rows[0].count, 1)
     assert.equal((await database().query(
       `SELECT count(*)::int AS count FROM tessera_pixels WHERE lease_id = $1`,
       [issued.lease.lease_id])).rows[0].count, 1)

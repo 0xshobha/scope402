@@ -1,7 +1,37 @@
 {
   "name": "@scope402/agent",
+  "version": "0.1.0",
+  "description": "Reference TypeScript client for purchasing and using Scope402 capabilities",
   "private": true,
+  "engines": {
+    "node": ">=22"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/0xshobha/scope402.git",
+    "directory": "apps/agent"
+  },
   "type": "module",
+  "main": "./dist/sdk.js",
+  "types": "./dist/sdk.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/sdk.d.ts",
+      "import": "./dist/sdk.js"
+    }
+  },
+  "files": [
+    "dist/canonical.*",
+    "dist/discovery.*",
+    "dist/payment-client.*",
+    "dist/policy.*",
+    "dist/purchase.*",
+    "dist/sdk.*",
+    "dist/subject.*",
+    "dist/tessera-purchase.*",
+    "examples",
+    "README.md"
+  ],
   "scripts": {
     "build": "tsc",
     "demo": "node --env-file-if-exists=.env dist/demo-server.js",

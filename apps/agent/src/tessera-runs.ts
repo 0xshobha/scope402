@@ -18,7 +18,7 @@ export type PublicTesseraRun = {
   expires_at: string
   mode: 'hosted-testnet-agent'
   quote: {
-    canvas_id: 'main'
+    canvas_id: string
     region: PreparedPlot['quote']['region']
     pricing: PreparedPlot['quote']['pricing']
     policy_hash: string
@@ -53,7 +53,7 @@ type InternalRun = {
 }
 
 export type TesseraRunDependencies = {
-  prepare(subject: AgentSubject): Promise<PreparedPlot>
+  prepare(subject: AgentSubject, requestedSlot?: number, canvasId?: string): Promise<PreparedPlot>
   approve(prepared: PreparedPlot): Promise<{ result: TesseraPlotResult }>
   payerBalanceTinybars(): Promise<bigint>
   createCapabilitySession(prepared: PreparedPlot, result: TesseraPlotResult,
@@ -76,7 +76,7 @@ export class TesseraRunService {
     return this.dependencies.now?.() ?? Date.now()
   }
 
-  async create(ip: string) {
+  async create(ip: string, requestedSlot?: number, canvasId = 'main') {
     const now = this.now()
     const runId = randomUUID()
     const expiresAt = now + this.limits.runTtlMs
@@ -94,7 +94,7 @@ export class TesseraRunService {
     const worker = ephemeralSubject()
     let prepared: PreparedPlot
     try {
-      prepared = await this.dependencies.prepare(principal)
+      prepared = await this.dependencies.prepare(principal, requestedSlot, canvasId)
     } catch (error) {
       this.guard.releaseRun(runId, true)
       throw error
@@ -107,7 +107,7 @@ export class TesseraRunService {
       expires_at: new Date(expiresAt).toISOString(),
       mode: 'hosted-testnet-agent',
       quote: {
-        canvas_id: 'main', region: prepared.quote.region, pricing: prepared.quote.pricing,
+        canvas_id: prepared.quote.canvas_id, region: prepared.quote.region, pricing: prepared.quote.pricing,
         policy_hash: prepared.quote.policy_hash, payer: prepared.payer,
         merchant: prepared.terms.payTo, network: 'hedera:testnet', asset: '0.0.0',
       },
@@ -245,7 +245,7 @@ export class TesseraRunService {
     }
     run.activeAction = 'paint'
     run.public.state = 'ACTION_PENDING'
-    const attempt = run.capability.paint({ canvas_id: 'main', ...args }, requestId).then((result) => {
+    const attempt = run.capability.paint({ canvas_id: run.prepared.quote.canvas_id, ...args }, requestId).then((result) => {
       run.public.paint_events.push(result)
       run.public.root = run.capability!.root()
       run.public.state = run.public.child ? 'CHILD_ACTIVE' : 'ROOT_ACTIVE'

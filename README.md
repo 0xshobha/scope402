@@ -2,6 +2,8 @@
 
 **Payment is not authorization.**
 
+![Scope402 — payment is not authorization](apps/web/public/scope402-cover.png)
+
 Scope402 is a payment-and-permission layer for AI agents. An agent can pay HBAR for useful work without
 receiving unlimited access afterward. Each purchase defines who may act, what they may do, how many times,
 and for how long; Scope402 represents that limited permission as a signed capability.
@@ -9,19 +11,61 @@ and for how long; Scope402 represents that limited permission as a signed capabi
 The reference merchant, AuditLab, scans a public GitHub repository and grants the declared agent three signed
 calls to `finding_details` for five minutes.
 
-Tessera reuses the same authorization kernel for a spatial resource: a principal purchases an `8 × 8`
-paint capability, then delegates a strictly narrower, conserved call budget to a different P-256 worker.
-Its public browser flow prepares and recovers the quote, performs the guarded testnet purchase, lets the player
-paint inside the purchased region, and drives a fixed delegation and denial proof without exposing private keys.
+Tessera is the visual proof. A principal purchases an `8 × 8` canvas capability, then delegates a strictly
+smaller `4 × 4`, one-call capability to a different P-256 worker. The server accepts work inside the purchased
+authority and rejects wrong-key, replayed, expired, and out-of-region actions.
 
-Public API: [scope402-auditlab.onrender.com](https://scope402-auditlab.onrender.com/health)
+## Live application
 
-Operational readiness: [`/ready`](https://scope402-auditlab.onrender.com/ready) checks PostgreSQL,
-Blocky402 Hedera testnet support, merchant configuration, and the P-256 capability issuer. It returns `503`
-with sanitized per-dependency status when the payment-and-capability path is unavailable; `/health` remains
-the process-liveness probe.
+| Surface | URL | What it proves |
+| --- | --- | --- |
+| Scope402 | [scope402.onrender.com](https://scope402.onrender.com/) | Product explanation, live discovery, and system boundaries |
+| AuditLab | [scope402.onrender.com/demo](https://scope402.onrender.com/demo/) | Real paid repository work followed by key-bound tool access and denial tests |
+| Tessera | [scope402.onrender.com/tessera](https://scope402.onrender.com/tessera/) | Real paid canvas authority, narrower worker delegation, pixel placement, and denial tests |
+| Merchant API | [health](https://scope402-auditlab.onrender.com/health) · [readiness](https://scope402-auditlab.onrender.com/ready) · [discovery](https://scope402-auditlab.onrender.com/.well-known/scope402) | Process status, payment-path dependencies, and machine-readable resources |
+| Hosted payer agent | [health](https://scope402-demo-agent.onrender.com/health) | Whether the guarded testnet payer and browser orchestration service are available |
 
-Public web: [scope402.onrender.com](https://scope402.onrender.com)
+`/ready` checks PostgreSQL, Blocky402 Hedera testnet support, merchant configuration, and the P-256 capability
+issuer. It returns `503` with sanitized per-dependency status when the payment-and-capability path is unavailable;
+`/health` remains the process-liveness probe.
+
+## What the interface shows
+
+The browser is an inspection and control surface, not a wallet. A visitor can:
+
+1. prepare a quote and inspect the price, Hedera accounts, resource, limits, and policy hash before payment;
+2. explicitly approve one platform-funded Hedera **testnet** payment;
+3. see the settled transaction and verify it on HashScan;
+4. inspect the root capability's subject, resource, tools, call budget, expiry, and payment lineage;
+5. delegate less authority to a different worker key;
+6. place an allowed pixel and run fixed outside-region, wrong-key, replay, and expiry probes; and
+7. refresh without paying twice while the hosted run still exists.
+
+The current local checkout also adds an interactive Tessera world layer: visitors can choose or name a shared
+`32 × 32` world, copy its URL, select one of sixteen `8 × 8` territories, choose a collaborative pixel mission,
+paint with a server-approved palette, and inspect live territory status, contributors, and recent activity.
+Visible tabs refresh the shared PostgreSQL-backed world every three seconds and background tabs back off to ten;
+this is bounded polling, not a WebSocket or on-chain pixel-state claim.
+Those multi-world and mission features are **local next-release work until deployed**; the public URL above
+continues to be the source of truth for what judges can use today.
+
+### Interactions and evidence
+
+The interfaces keep the important state transitions and server results visible instead of hiding them behind
+an animation:
+
+| Interaction | Visible evidence | What the server proves |
+| --- | --- | --- |
+| Prepare purchase | Price, payer, merchant, network, resource, policy hash | The agent knows the exact authority before signing |
+| Pay | Hedera transaction and HashScan link | A distinct payer transferred the quoted native HBAR amount |
+| Receive root capability | Subject, resource, tools, calls, expiry, lineage | Payment produced limited permission, not a general API key |
+| Delegate to worker | Different P-256 subject and smaller region, budget, and lifetime | A principal can share less authority without sharing its wallet or root key |
+| Perform allowed action | Finding response or committed pixel plus remaining calls | A valid signed invocation can use only purchased authority |
+| Probe a boundary | Exact HTTP status and denial code in the action log | Wrong-key, replayed, expired, and out-of-scope requests fail without an unauthorized mutation |
+
+These interactions represent practical patterns beyond the two demonstrations: paid developer tools, bounded
+AI/API sessions, multi-agent task delegation, temporary cloud operations, and metered data or research access.
+AuditLab and Tessera are the implemented proofs; the other examples are use cases, not integrations claimed today.
 
 ## Why
 
@@ -32,11 +76,71 @@ connects the purchase to limited permission while keeping payment and authorizat
 
 The diagram above shows the broader model. AuditLab and Tessera are implemented today; Web/MCP tools and
 cloud/data APIs are examples of where the same authorization model can be applied, not current integrations.
-The exact architecture of the running implementation is shown below.
+The Mermaid diagram below describes the current checkout. It separates browser orchestration, real settlement,
+capability enforcement, merchant work, and durable state instead of treating them as one trusted application.
+
+```mermaid
+flowchart LR
+  U["Visitor or external agent"] -->|"inspect terms and approve"| B["Browser UI<br/>no private keys"]
+
+  subgraph Agent["Guarded payer agent"]
+    R["Run orchestration<br/>opaque browser capability"]
+    P["Hedera payer key"]
+    K["P-256 principal and worker keys"]
+  end
+
+  B -->|"prepare, approve, fixed proof actions"| R
+  R --> P
+  R --> K
+
+  subgraph Merchant["Scope402 merchant API"]
+    Q["Quote and persisted purchase policy"]
+    S["Scope402 authorization kernel<br/>subject, resource, tool, calls, expiry"]
+    A["AuditLab<br/>repository scan and finding_details"]
+    T["Tessera<br/>world, territory, place_pixel"]
+  end
+
+  R -->|"unpaid request"| Q
+  Q -->|"402 + exact policy hash"| R
+  R -->|"validated PAYMENT-SIGNATURE"| Q
+  Q --> X["Blocky402 facilitator"]
+  X --> H["Hedera testnet<br/>native HBAR settlement"]
+  H --> V["HashScan and Mirror Node proof"]
+  Q -->|"settled quote"| S
+  S --> A
+  S --> T
+  S -->|"root capability"| R
+  R -->|"principal-signed attenuation"| W["Worker agent<br/>smaller region, budget, expiry"]
+  W -->|"signed invocation"| S
+
+  D[("PostgreSQL<br/>quotes, policies, settlements, leases,<br/>counters, budgets, worlds, pixels")]
+  Q <--> D
+  S <--> D
+  A <--> D
+  T <--> D
+```
+
+The exported static runtime diagram is retained as a fallback and presentation asset:
 
 ![Scope402 runtime architecture: browser, hosted agent, x402 policy, Blocky402, Hedera, merchants, delegated worker, and atomic enforcement](docs/assets/scope402-runtime-architecture.svg)
 
-The browser is not trusted with either the Hedera payer key or the subject private key. The payer is a separate Node.js process. The merchant never pays itself.
+The browser never receives the Hedera payer key, principal or worker private keys, raw leases, payment headers,
+invocation signatures, or server control secrets. The payer is a separate Node.js process, and the merchant never
+pays itself. Hedera proves that value moved; the persisted policy and Scope402 kernel define and enforce what the
+purchase authorized. The capability policy is not claimed to be encoded in the Hedera transaction.
+
+## Payment-to-permission flow
+
+1. The agent requests work without payment.
+2. The merchant persists the exact purchase policy and returns `402 Payment Required` with that policy.
+3. The agent validates the merchant, network, amount, subject, resource, tools, call budget, expiry, and policy hash.
+4. The agent signs only after those terms match its local policy.
+5. Blocky402 verifies and settles native HBAR on Hedera testnet.
+6. The merchant resumes useful work from the settled quote and issues one root capability with the same lineage.
+7. Every later invocation is P-256 signed and atomically consumes its replay counter and call budget with the
+   merchant mutation.
+8. In Tessera, the principal may sign one strictly narrower child capability; the worker never receives the payer
+   wallet or root private key.
 
 ## Use cases
 
@@ -85,6 +189,47 @@ charging for every call or exposing a broad bearer credential:
 - player-selected Tessera pixels and palette colors signed by the guarded principal agent, with idempotent retries
   and server-enforced region and call-budget limits
 
+### Interactive Tessera expansion in this checkout
+
+The following features are implemented and locally verified but are not presented as deployed public proof yet:
+
+- multiple isolated `32 × 32` worlds with safe, shareable slugs and a bounded public-world limit
+- abandoned unpaid empty worlds are reclaimed after quote expiry, so quote spam cannot permanently consume that limit
+- a world catalogue and direct links such as `/tessera/?world=runtime-garden`
+- explicit selection of one available `8 × 8` territory before quote creation
+- transactionally unique reservations with `AVAILABLE`, `RESERVED`, `CLAIMED`, and `OPEN AGAIN` states
+- local principal/worker canvas challenges whose targets remain inside the selected territory and count only
+  pixels owned by the required principal or delegated worker
+- server-authoritative contributor ranking, recent activity, painted-pixel totals, and distinct pixel-owner counts
+- world-bound quotes, policies, root capabilities, delegated capabilities, invocations, and pixels
+- synchronized discovery, OpenAPI, and agent quickstart coverage for named worlds and exact territory selection
+- a local TypeScript reference SDK for typed world discovery, world-state reads, prepare-before-pay purchases,
+  exact policy validation, root painting, strict worker attenuation, serialized counters, and idempotent agent retries
+- a guarded autonomous-agent example that stops after showing the quote unless payment is explicitly enabled
+
+No wallet connection, ENS identity, HCS audit trail, free-form browser signing, or on-chain pixel storage is
+claimed. The canvas is stored in PostgreSQL; Hedera is the real payment rail.
+
+## HTTP surfaces
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET` | `/health` | API process liveness |
+| `GET` | `/ready` | Sanitized dependency readiness |
+| `GET` | `/.well-known/scope402` | Scope402 resource and authority discovery |
+| `POST` | `/v1/scans` | AuditLab x402 purchase and resumable scan fulfillment |
+| `POST` | `/v1/plots` | Tessera x402 territory purchase and root-capability fulfillment |
+| `GET` | `/v1/canvas` | Public server-authoritative default canvas |
+| `GET` | `/v1/canvas/:canvasId` | Public state for one named world in the current checkout |
+| `GET` | `/v1/canvases` | Public world catalogue in the current checkout |
+| `POST` | `/v1/leases/:leaseId/delegations` | Principal-signed Tessera attenuation |
+| `POST` | `/v1/tools/place_pixel` | Tessera capability-protected atomic pixel mutation |
+
+The hosted agent exposes opaque `/demo/runs` and `/tessera/runs` orchestration routes for the browser. Independent
+agents do not need that wrapper. The local `@scope402/agent` package exports a TypeScript SDK with the same explicit prepare, approve,
+invoke, and delegate flow, while the OpenAPI and signing contract remain the language-neutral integration surface.
+The SDK is a tested local package in this checkout and is not claimed as published on npm.
+
 AuditLab exposes `finding_details`; Tessera exposes `place_pixel`. Both have public payment-to-denial proof,
 with exact transactions and outcomes recorded below.
 
@@ -121,7 +266,8 @@ credit. The hosted path returned `200 CAPABILITY_DELEGATED`, `403 OUT_OF_SCOPE`,
 
 ## Run locally
 
-For independent agents, start with the [quickstart](apps/web/public/docs/agent-quickstart.md),
+For independent agents, start with the [TypeScript SDK](apps/agent/README.md),
+[quickstart](apps/web/public/docs/agent-quickstart.md),
 [HTTP and signing contract](apps/web/public/docs/api-contract.md), and
 [Tessera OpenAPI](apps/web/public/openapi.json). The website publishes a small
 [llms.txt documentation index](apps/web/public/llms.txt); this does not imply a directory listing or automatic client compatibility.
@@ -171,11 +317,35 @@ Run the paid client:
 node --env-file=/path/to/agent.env apps/agent/dist/index.js https://github.com/expressjs/express
 ```
 
+Run the autonomous Tessera example in quote-only mode after building:
+
+```bash
+node --env-file=/path/to/agent.env apps/agent/examples/autonomous-tessera-agent.mjs
+```
+
+It validates and prints the exact price, merchant, territory, and policy hash, then exits without moving HBAR.
+Only setting `SCOPE402_APPROVE_PAYMENT=yes` makes it approve the transaction, delegate a narrower worker
+capability, and place one worker pixel. Use that switch only with your own funded testnet payer and reviewed terms.
+
 Run the browser app locally:
 
 ```bash
 corepack pnpm --filter @scope402/web dev
 ```
+
+Then open:
+
+- homepage: `http://127.0.0.1:5173/`
+- AuditLab: `http://127.0.0.1:5173/demo/`
+- Tessera: `http://127.0.0.1:5173/tessera/`
+- a named local world: `http://127.0.0.1:5173/tessera/?world=runtime-garden`
+
+The default Vite development proxy targets the public merchant API and hosted agent. To exercise an entirely
+local payment path, run the API and guarded agent with their own external environment files and set the web
+app's `VITE_AUDITLAB_URL`, `VITE_DEMO_AGENT_URL`, `VITE_TESSERA_API_URL`, and `VITE_TESSERA_AGENT_URL`
+accordingly (for example, `VITE_TESSERA_AGENT_URL=http://127.0.0.1:3001`). Never put funded account keys in
+the web app or a committed environment file. The proxy keeps the public hosted agent as the default when these
+variables are absent.
 
 ## Verify
 

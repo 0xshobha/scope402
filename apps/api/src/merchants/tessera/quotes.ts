@@ -8,6 +8,7 @@ import { assertQuoteId, beginRedemptionInTransaction } from '../../payments.js'
 import { parseTesseraScope402Extension, tesseraScope402Extension } from '../../scope-extension.js'
 import { hasExactKeys } from '../../scope402/policy.js'
 import { parseCanvasRegion, rootCanvasRegion, TESSERA_CANVAS_ID } from './resource.js'
+import { ensureCanvas } from './canvases.js'
 
 export const TESSERA_MERCHANT_ID = 'tessera'
 
@@ -32,7 +33,16 @@ function parsePlotPricing(value: unknown): PlotPricing {
   return pricing as PlotPricing
 }
 
-async function reclaimExpiredSlots(client: TransactionClient) {
+async function reclaimExpiredSlots(client: TransactionClient, canvasId: string) {
+  await client.query(
+    `UPDATE tessera_slots AS slot
+     SET quote_id = NULL, status = 'available', reservation_expires_at = NULL, transaction_id = NULL
+     FROM plot_jobs AS job
+     JOIN tool_leases AS lease ON lease.lease_id = job.lease_id
+     WHERE slot.quote_id = job.quote_id AND slot.canvas_id = $1 AND slot.status = 'allocated'
+       AND lease.expires_at <= clock_timestamp()`,
+    [canvasId],
+  )
   await client.query(
     `DELETE FROM payment_redemptions AS redemption
      USING tessera_slots AS slot
@@ -41,7 +51,7 @@ async function reclaimExpiredSlots(client: TransactionClient) {
        AND redemption.updated_at <= clock_timestamp() - interval '3 minutes'
        AND slot.canvas_id = $1 AND slot.status = 'pending'
        AND slot.reservation_expires_at <= clock_timestamp()`,
-    [TESSERA_CANVAS_ID],
+    [canvasId],
   )
   await client.query(
     `UPDATE tessera_slots AS slot
@@ -55,33 +65,37 @@ async function reclaimExpiredSlots(client: TransactionClient) {
              (redemption.status = 'verifying' AND
               redemption.updated_at > clock_timestamp() - interval '3 minutes'))
        )`,
-    [TESSERA_CANVAS_ID],
+    [canvasId],
   )
 }
 
 export async function createPlotQuote(subjectPubkey: string, endpoint: string,
-  requirements: PaymentRequirements, pricing: PlotPricing, audience: string) {
+  requirements: PaymentRequirements, pricing: PlotPricing, audience: string, requestedSlot?: number,
+  canvasId = TESSERA_CANVAS_ID) {
   if (pricing.total_tinybars !== requirements.amount) {
     throw new PaymentError('PAYMENT_STATE_ERROR', 'Tessera pricing and payment amount disagree')
   }
   return transaction(async (client) => {
-    await reclaimExpiredSlots(client)
+    await ensureCanvas(client, canvasId)
+    await reclaimExpiredSlots(client, canvasId)
     const available = await client.query(
       `SELECT slot FROM tessera_slots
-       WHERE canvas_id = $1 AND status = 'available'
+       WHERE canvas_id = $1 AND status = 'available' AND ($2::integer IS NULL OR slot = $2)
        ORDER BY slot FOR UPDATE SKIP LOCKED LIMIT 1`,
-      [TESSERA_CANVAS_ID],
+      [canvasId, requestedSlot ?? null],
     )
     if (available.rowCount !== 1) {
-      throw new PaymentError('CANVAS_FULL', 'No Tessera root region is currently available')
+      throw new PaymentError(requestedSlot === undefined ? 'CANVAS_FULL' : 'REGION_UNAVAILABLE',
+        requestedSlot === undefined ? 'No Tessera root region is currently available' :
+          'The selected Tessera region is no longer available')
     }
     const slot = Number(available.rows[0].slot)
-    const resource = rootCanvasRegion(slot)
+    const resource = rootCanvasRegion(slot, canvasId)
     const extensions = tesseraScope402Extension(subjectPubkey, resource, audience)
     const quoteId = randomUUID()
     const resourceUrl = new URL(endpoint)
     resourceUrl.searchParams.set('quote_id', quoteId)
-    const binding = { canvas_id: TESSERA_CANVAS_ID }
+    const binding = { canvas_id: canvasId, ...(requestedSlot === undefined ? {} : { slot }) }
     await client.query(
       `INSERT INTO payment_quotes
          (quote_id, repo_url, subject_pubkey, resource_url, requirements, expires_at,
@@ -95,7 +109,7 @@ export async function createPlotQuote(subjectPubkey: string, endpoint: string,
       `UPDATE tessera_slots SET quote_id = $3, status = 'pending',
          reservation_expires_at = clock_timestamp() + interval '5 minutes'
        WHERE canvas_id = $1 AND slot = $2 AND status = 'available' RETURNING slot`,
-      [TESSERA_CANVAS_ID, slot, quoteId],
+      [canvasId, slot, quoteId],
     )
     if (reserved.rowCount !== 1) throw new Error('Tessera slot changed during reservation')
     return { quoteId, resourceUrl: resourceUrl.href, resource, extensions, pricing }
@@ -103,7 +117,7 @@ export async function createPlotQuote(subjectPubkey: string, endpoint: string,
 }
 
 export async function loadPlotQuote(quoteId: string, canvasId: string, subjectPubkey: string,
-  allowExpired = false) {
+  allowExpired = false, requestedSlot?: number) {
   assertQuoteId(quoteId)
   const result = await database().query(
     `SELECT quote.resource_url, quote.requirements, quote.pricing, quote.scope402_extension,
@@ -121,15 +135,15 @@ export async function loadPlotQuote(quoteId: string, canvasId: string, subjectPu
     throw new PaymentError('QUOTE_EXPIRED', 'Tessera quote is missing, expired, or no longer owns its region')
   }
   const row = result.rows[0]
-  if (canvasId !== TESSERA_CANVAS_ID ||
-      !isDeepStrictEqual(row.request_binding, { canvas_id: canvasId })) {
+  if (!isDeepStrictEqual(row.request_binding,
+    { canvas_id: canvasId, ...(requestedSlot === undefined ? {} : { slot: requestedSlot }) })) {
     throw new PaymentError('PAYMENT_REQUIREMENTS_MISMATCH', 'Tessera quote is bound to another request')
   }
   const extensions = parseTesseraScope402Extension(row.scope402_extension)
   const resource = parseCanvasRegion(extensions.scope402.info.resource)
   if (row.policy_hash !== extensions.scope402.info.policyHash ||
       extensions.scope402.info.subject.publicKey !== subjectPubkey ||
-      resource.canvasId !== canvasId || !isDeepStrictEqual(resource, rootCanvasRegion(Number(row.slot))) ||
+      resource.canvasId !== canvasId || !isDeepStrictEqual(resource, rootCanvasRegion(Number(row.slot), canvasId)) ||
       extensions.scope402.info.audience !== new URL('/v1/tools', String(row.resource_url)).href) {
     throw new PaymentError('PAYMENT_STATE_ERROR', 'Stored Tessera quote policy is inconsistent')
   }

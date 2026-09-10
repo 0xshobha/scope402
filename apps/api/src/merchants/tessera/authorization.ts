@@ -84,7 +84,7 @@ const tesseraPixelAdapter = {
         context.state.reservedCalls - 1 }
   },
   commitBusinessMutation: async (client: TransactionClient,
-    context: { state: { leaseId: string } }, authorized: {
+    context: { state: { leaseId: string }; invocation: Scope402Invocation }, authorized: {
       point: { canvasId: string; x: number; y: number }
       color: TesseraColor
       remainingCalls: number
@@ -100,6 +100,12 @@ const tesseraPixelAdapter = {
         authorized.color, context.state.leaseId],
     )
     if (result.rowCount !== 1) throw new Error('Pixel mutation did not commit')
+    await client.query(
+      `INSERT INTO tessera_pixel_events (canvas_id, x, y, color, lease_id, counter)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [authorized.point.canvasId, authorized.point.x, authorized.point.y,
+        authorized.color, context.state.leaseId, context.invocation.counter],
+    )
     const row = result.rows[0]
     return {
       pixel: { canvas_id: String(row.canvas_id), x: Number(row.x), y: Number(row.y),

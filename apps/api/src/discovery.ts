@@ -7,6 +7,8 @@ export const auditLabDiscovery = {
     repository_scan: { method: 'POST', path: '/v1/scans' },
     tessera_plot: { method: 'POST', path: '/v1/plots' },
     tessera_canvas: { method: 'GET', path: '/v1/canvas' },
+    tessera_canvases: { method: 'GET', path: '/v1/canvases' },
+    tessera_canvas_by_id: { method: 'GET', path_template: '/v1/canvas/{canvas_id}' },
   },
   authorization: {
     scheme: 'scope402-tool-lease',

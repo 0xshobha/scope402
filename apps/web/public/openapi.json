@@ -2,8 +2,8 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Scope402 Tessera API",
-    "version": "2026-09-06",
-    "description": "Tessera purchase, invocation and one-level delegation, plus public metadata. AuditLab purchase schemas and hosted-agent routes are outside this document. Requests require x402 payment or body-carried signed capabilities as described per operation. OpenAPI client generation does not implement Scope402 signing or policy verification."
+    "version": "2026-09-10",
+    "description": "Tessera named worlds, territory purchase, invocation and one-level delegation, plus public metadata. AuditLab purchase schemas and hosted-agent routes are outside this document. Requests require x402 payment or body-carried signed capabilities as described per operation. OpenAPI client generation does not implement Scope402 signing or policy verification."
   },
   "servers": [{ "url": "https://scope402-auditlab.onrender.com" }],
   "externalDocs": { "description": "Signing, policy binding and recovery semantics", "url": "https://scope402.onrender.com/docs/api-contract.md" },
@@ -15,6 +15,16 @@
         "responses": { "200": { "description": "API process responds", "content": { "application/json": { "schema": {
           "type": "object", "required": ["ok", "service"], "properties": { "ok": { "const": true }, "service": { "const": "auditlab" } }
         } } } } }
+      }
+    },
+    "/ready": {
+      "get": {
+        "operationId": "getReadiness",
+        "summary": "Read sanitized database, facilitator and capability-issuer readiness",
+        "responses": {
+          "200": { "description": "All required dependencies are ready", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Readiness" } } } },
+          "503": { "description": "At least one dependency is unavailable", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Readiness" } } } }
+        }
       }
     },
     "/.well-known/scope402": {
@@ -47,18 +57,48 @@
         }
       }
     },
+    "/v1/canvas/{canvas_id}": {
+      "get": {
+        "operationId": "getCanvasById",
+        "summary": "Read one named Tessera world",
+        "parameters": [{ "name": "canvas_id", "in": "path", "required": true, "schema": { "$ref": "#/components/schemas/CanvasId" } }],
+        "responses": {
+          "200": { "description": "Named canvas state", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Canvas" } } } },
+          "404": { "$ref": "#/components/responses/Error" },
+          "503": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/v1/canvases": {
+      "get": {
+        "operationId": "listCanvases",
+        "summary": "List public Tessera worlds without reserving or paying",
+        "responses": {
+          "200": { "description": "Canvas catalogue", "content": { "application/json": { "schema": {
+            "type": "object", "required": ["canvases"], "properties": {
+              "canvases": { "type": "array", "maxItems": 100, "items": { "$ref": "#/components/schemas/CanvasSummary" } }
+            }
+          } } } },
+          "503": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
     "/v1/plots": {
       "post": {
         "operationId": "purchasePlot",
         "summary": "Prepare an unpaid quote or fulfill the same quoted purchase",
-        "description": "No payment header: reserves a server-selected 8x8 plot for five minutes and returns 402. Paid retry: use the exact returned resource.url including quote_id, original body and approved x402 echo. A root has 12 calls and 300 seconds from issuance. Do not sign another transfer after an ambiguous delivery. Maximum body: 4096 bytes.",
+        "description": "No payment header: reserves a selected or server-selected 8x8 territory for five minutes and returns 402. A safe new canvas_id creates a provisional empty world; abandoned unpaid empty worlds may be reclaimed after expiry. Paid retry: use the exact returned resource.url including quote_id, original body and approved x402 echo. A root has 12 calls and 300 seconds from issuance. Do not sign another transfer after an ambiguous delivery. Maximum body: 4096 bytes.",
         "parameters": [
           { "name": "quote_id", "in": "query", "required": false, "description": "Required on paid retry; use the quoted URL unchanged", "schema": { "type": "string", "format": "uuid" } },
           { "name": "PAYMENT-SIGNATURE", "in": "header", "required": false, "description": "SDK-encoded x402 v2 PaymentPayload, including unchanged resource, accepted requirements and scope402 extension", "schema": { "type": "string" } }
         ],
         "requestBody": { "required": true, "content": { "application/json": { "schema": {
           "type": "object", "additionalProperties": false, "required": ["canvas_id", "subject_pubkey"],
-          "properties": { "canvas_id": { "const": "main" }, "subject_pubkey": { "$ref": "#/components/schemas/SubjectKey" } }
+          "properties": {
+            "canvas_id": { "$ref": "#/components/schemas/CanvasId" },
+            "subject_pubkey": { "$ref": "#/components/schemas/SubjectKey" },
+            "slot": { "type": "integer", "minimum": 0, "maximum": 15, "description": "Optional exact 8x8 territory; omitted means first available territory" }
+          }
         } } } },
         "responses": {
           "200": { "description": "Settled purchase fulfilled, or original result recovered; this does not renew an expired lease", "headers": {
@@ -88,7 +128,7 @@
             "type": "object", "required": ["status", "lease_id", "counter", "pixel", "remaining_calls"],
             "properties": {
               "status": { "const": "PIXEL_PLACED" }, "lease_id": { "type": "string" }, "counter": { "$ref": "#/components/schemas/Counter" },
-              "pixel": { "allOf": [{ "$ref": "#/components/schemas/Pixel" }, { "type": "object", "required": ["canvas_id"], "properties": { "canvas_id": { "const": "main" } } }] },
+              "pixel": { "allOf": [{ "$ref": "#/components/schemas/Pixel" }, { "type": "object", "required": ["canvas_id"], "properties": { "canvas_id": { "$ref": "#/components/schemas/CanvasId" } } }] },
               "remaining_calls": { "type": "integer", "minimum": 0 }
             }
           } } } },
@@ -141,7 +181,15 @@
     },
     "schemas": {
       "Error": { "type": "object", "required": ["error", "message"], "properties": { "error": { "type": "string" }, "message": { "type": "string" } } },
-      "Route": { "type": "object", "required": ["method", "path"], "properties": { "method": { "enum": ["GET", "POST"] }, "path": { "type": "string" } } },
+      "Readiness": { "type": "object", "required": ["ok", "service", "network", "dependencies"], "properties": {
+        "ok": { "type": "boolean" }, "service": { "const": "scope402-api" }, "network": { "const": "hedera:testnet" },
+        "dependencies": { "type": "object", "required": ["database", "blocky402", "capability_issuer"], "properties": {
+          "database": { "enum": ["ok", "unavailable"] }, "blocky402": { "enum": ["ok", "unavailable"] },
+          "capability_issuer": { "enum": ["ok", "unavailable"] }
+        } }
+      } },
+      "Route": { "type": "object", "required": ["method"], "properties": { "method": { "enum": ["GET", "POST"] }, "path": { "type": "string" }, "path_template": { "type": "string" } }, "oneOf": [{ "required": ["path"] }, { "required": ["path_template"] }] },
+      "CanvasId": { "type": "string", "pattern": "^[a-z0-9](?:[a-z0-9-]{1,30}[a-z0-9])?$", "description": "Safe 3-32 character world slug; main is the default world" },
       "SubjectKey": { "type": "string", "description": "Base64url DER SPKI P-256 public key. Not PEM, JWK, fingerprint, account ID or private key." },
       "Counter": { "type": "integer", "minimum": 1, "maximum": 9007199254740991, "description": "Next counter, starting at 1. Invocation and delegation sequences are separate." },
       "PolicyHash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
@@ -150,7 +198,7 @@
         "type": "object", "required": ["kind", "canvasId", "x", "y", "width", "height"],
         "description": "Half-open rectangle. x+width and y+height must be <=32. Signed resource objects allow exactly these six fields.",
         "properties": {
-          "kind": { "const": "canvas-region" }, "canvasId": { "const": "main" },
+          "kind": { "const": "canvas-region" }, "canvasId": { "$ref": "#/components/schemas/CanvasId" },
           "x": { "type": "integer", "minimum": 0, "maximum": 31 }, "y": { "type": "integer", "minimum": 0, "maximum": 31 },
           "width": { "type": "integer", "minimum": 1, "maximum": 32 }, "height": { "type": "integer", "minimum": 1, "maximum": 32 }
         }
@@ -159,17 +207,48 @@
       "Pixel": {
         "type": "object", "required": ["x", "y", "color", "updated_at"], "properties": {
           "x": { "type": "integer", "minimum": 0, "maximum": 31 }, "y": { "type": "integer", "minimum": 0, "maximum": 31 },
-          "color": { "$ref": "#/components/schemas/Color" }, "updated_at": { "type": "integer", "description": "Unix seconds" }
+          "color": { "$ref": "#/components/schemas/Color" }, "updated_at": { "type": "integer", "description": "Unix seconds" },
+          "agent": { "$ref": "#/components/schemas/AgentFingerprint" }
+        }
+      },
+      "AgentFingerprint": { "type": "string", "pattern": "^agent:[0-9a-f]{12}$", "description": "Public one-way fingerprint; never a key or capability" },
+      "CanvasSummary": {
+        "type": "object", "required": ["canvas_id", "name", "width", "height", "created_at", "painted_pixels", "claimed_territories"],
+        "properties": {
+          "canvas_id": { "$ref": "#/components/schemas/CanvasId" }, "name": { "type": "string" },
+          "width": { "const": 32 }, "height": { "const": 32 }, "created_at": { "type": "integer", "description": "Unix seconds" },
+          "painted_pixels": { "type": "integer", "minimum": 0, "maximum": 1024 },
+          "claimed_territories": { "type": "integer", "minimum": 0, "maximum": 16 }
         }
       },
       "Canvas": {
-        "type": "object", "required": ["canvas_id", "width", "height", "palette", "pixels", "regions"], "properties": {
-          "canvas_id": { "const": "main" }, "width": { "const": 32 }, "height": { "const": 32 },
+        "type": "object", "required": ["canvas_id", "width", "height", "palette", "world", "pixels", "leaderboard", "recent_activity", "reservations", "regions"], "properties": {
+          "canvas_id": { "$ref": "#/components/schemas/CanvasId" }, "width": { "const": 32 }, "height": { "const": 32 },
           "palette": { "type": "array", "items": { "$ref": "#/components/schemas/Color" } },
+          "world": { "type": "object", "required": ["name", "painted_pixels", "total_placements", "total_pixels", "completion_percent", "current_painters", "active_territories", "reserved_territories"], "properties": {
+            "name": { "type": "string" }, "painted_pixels": { "type": "integer", "minimum": 0 }, "total_placements": { "type": "integer", "minimum": 0 },
+            "total_pixels": { "const": 1024 }, "completion_percent": { "type": "number", "minimum": 0, "maximum": 100 },
+            "current_painters": { "type": "integer", "minimum": 0, "description": "Distinct agent fingerprints that currently own at least one pixel; not an online-presence metric" }, "active_territories": { "type": "integer", "minimum": 0, "maximum": 16 },
+            "reserved_territories": { "type": "integer", "minimum": 0, "maximum": 16 }
+          } },
           "pixels": { "type": "array", "items": { "$ref": "#/components/schemas/Pixel" } },
+          "leaderboard": { "type": "array", "maxItems": 10, "items": { "type": "object", "required": ["agent", "placements", "last_active", "current_pixels"], "properties": {
+            "agent": { "$ref": "#/components/schemas/AgentFingerprint" }, "placements": { "type": "integer", "minimum": 1 },
+            "last_active": { "type": "integer" }, "current_pixels": { "type": "integer", "minimum": 0 }
+          } } },
+          "recent_activity": { "type": "array", "maxItems": 12, "items": { "type": "object", "required": ["x", "y", "color", "counter", "agent", "painted_at"], "properties": {
+            "x": { "type": "integer", "minimum": 0, "maximum": 31 }, "y": { "type": "integer", "minimum": 0, "maximum": 31 },
+            "color": { "$ref": "#/components/schemas/Color" }, "counter": { "type": "integer", "minimum": 1 },
+            "agent": { "$ref": "#/components/schemas/AgentFingerprint" }, "painted_at": { "type": "integer" }
+          } } },
+          "reservations": { "type": "array", "items": { "allOf": [{ "$ref": "#/components/schemas/RegionFields" }, { "type": "object", "required": ["slot", "agent", "expires_at", "status"], "properties": {
+            "slot": { "type": "integer", "minimum": 0, "maximum": 15 }, "agent": { "$ref": "#/components/schemas/AgentFingerprint" },
+            "expires_at": { "type": "integer" }, "status": { "const": "reserved" }
+          } }] } },
           "regions": { "type": "array", "items": { "allOf": [{ "$ref": "#/components/schemas/RegionFields" }, {
-            "type": "object", "required": ["slot", "lease_id", "expires_at", "remaining_calls", "active", "status"], "properties": {
+            "type": "object", "required": ["slot", "lease_id", "agent", "expires_at", "remaining_calls", "active", "status"], "properties": {
               "slot": { "type": "integer", "minimum": 0, "maximum": 15 }, "lease_id": { "type": "string" }, "expires_at": { "type": "integer" },
+              "agent": { "$ref": "#/components/schemas/AgentFingerprint" },
               "remaining_calls": { "type": "integer", "minimum": 0 }, "active": { "type": "boolean" }, "status": { "enum": ["active", "expired"] }
             }
           }] } }
@@ -203,7 +282,7 @@
             } }
           } },
           "quote": { "type": "object", "required": ["canvas_id", "region", "pricing"], "properties": {
-            "canvas_id": { "const": "main" }, "region": { "$ref": "#/components/schemas/Region" },
+            "canvas_id": { "$ref": "#/components/schemas/CanvasId" }, "region": { "$ref": "#/components/schemas/Region" },
             "pricing": { "type": "object", "required": ["base_tinybars", "per_call_tinybars", "calls", "total_tinybars"], "properties": {
               "base_tinybars": { "type": "string" }, "per_call_tinybars": { "type": "string" }, "calls": { "const": 12 }, "total_tinybars": { "type": "string" }
             } }
@@ -223,7 +302,7 @@
       },
       "PlotResult": {
         "type": "object", "required": ["status", "canvas_id", "region", "payment", "lease"], "properties": {
-          "status": { "const": "complete" }, "canvas_id": { "const": "main" }, "region": { "$ref": "#/components/schemas/Region" }, "lease": { "$ref": "#/components/schemas/Lease" },
+          "status": { "const": "complete" }, "canvas_id": { "$ref": "#/components/schemas/CanvasId" }, "region": { "$ref": "#/components/schemas/Region" }, "lease": { "$ref": "#/components/schemas/Lease" },
           "payment": { "type": "object", "required": ["merchant", "amount_tinybars", "transaction", "hashscan_url"], "properties": {
             "payer": { "type": "string" }, "merchant": { "type": "string" }, "amount_tinybars": { "type": "string" }, "transaction": { "type": "string" }, "hashscan_url": { "type": "string", "format": "uri" }
           } }
@@ -233,7 +312,7 @@
         "type": "object", "additionalProperties": false, "required": ["lease", "args", "counter", "signature"], "properties": {
           "lease": { "type": "string" }, "counter": { "$ref": "#/components/schemas/Counter" }, "signature": { "type": "string", "description": "Subject-signed compact scope402-invocation+jws; decoded payload follows InvocationClaims" },
           "args": { "type": "object", "additionalProperties": false, "required": ["canvas_id", "x", "y", "color"], "properties": {
-            "canvas_id": { "const": "main" }, "x": { "type": "integer", "minimum": 0, "maximum": 31 }, "y": { "type": "integer", "minimum": 0, "maximum": 31 }, "color": { "$ref": "#/components/schemas/Color" }
+            "canvas_id": { "$ref": "#/components/schemas/CanvasId" }, "x": { "type": "integer", "minimum": 0, "maximum": 31 }, "y": { "type": "integer", "minimum": 0, "maximum": 31 }, "color": { "$ref": "#/components/schemas/Color" }
           } }
         }
       },

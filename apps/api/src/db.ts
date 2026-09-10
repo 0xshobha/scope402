@@ -58,6 +58,15 @@ export async function initializeDatabase() {
       created_at timestamptz NOT NULL DEFAULT now(),
       updated_at timestamptz NOT NULL DEFAULT now()
     );
+    CREATE TABLE IF NOT EXISTS tessera_canvases (
+      canvas_id text PRIMARY KEY CHECK (canvas_id ~ '^[a-z0-9]([a-z0-9-]{1,30}[a-z0-9])?$'),
+      name text NOT NULL CHECK (char_length(name) BETWEEN 1 AND 64),
+      width integer NOT NULL CHECK (width = 32),
+      height integer NOT NULL CHECK (height = 32),
+      created_at timestamptz NOT NULL DEFAULT clock_timestamp()
+    );
+    INSERT INTO tessera_canvases (canvas_id, name, width, height)
+    VALUES ('main', 'Opal World', 32, 32) ON CONFLICT (canvas_id) DO NOTHING;
     CREATE TABLE IF NOT EXISTS tessera_slots (
       canvas_id text NOT NULL,
       slot integer NOT NULL CHECK (slot >= 0 AND slot < 16),
@@ -128,7 +137,7 @@ export async function initializeDatabase() {
     CREATE UNIQUE INDEX IF NOT EXISTS tool_leases_root_hedera_tx_id_key
       ON tool_leases (hedera_tx_id) WHERE parent_lease_id IS NULL;
     CREATE TABLE IF NOT EXISTS tessera_pixels (
-      canvas_id text NOT NULL CHECK (canvas_id = 'main'),
+      canvas_id text NOT NULL,
       x integer NOT NULL CHECK (x >= 0 AND x < 32),
       y integer NOT NULL CHECK (y >= 0 AND y < 32),
       color text NOT NULL CHECK (color IN (
@@ -139,6 +148,28 @@ export async function initializeDatabase() {
       updated_at timestamptz NOT NULL DEFAULT clock_timestamp(),
       PRIMARY KEY (canvas_id, x, y)
     );
+    ALTER TABLE tessera_pixels DROP CONSTRAINT IF EXISTS tessera_pixels_canvas_id_check;
+    ALTER TABLE tessera_pixels ADD CONSTRAINT tessera_pixels_canvas_id_check
+      CHECK (canvas_id ~ '^[a-z0-9]([a-z0-9-]{1,30}[a-z0-9])?$') NOT VALID;
+    CREATE TABLE IF NOT EXISTS tessera_pixel_events (
+      event_id bigserial PRIMARY KEY,
+      canvas_id text NOT NULL,
+      x integer NOT NULL CHECK (x >= 0 AND x < 32),
+      y integer NOT NULL CHECK (y >= 0 AND y < 32),
+      color text NOT NULL CHECK (color IN (
+        '#0B0B0C', '#F5F2EA', '#FFFFFF', '#FFB020',
+        '#7C4DFF', '#00D3F2', '#C6F432', '#FF3B30'
+      )),
+      lease_id uuid NOT NULL REFERENCES tool_leases(lease_id) ON DELETE CASCADE,
+      counter integer NOT NULL CHECK (counter > 0),
+      painted_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+      UNIQUE (lease_id, counter)
+    );
+    ALTER TABLE tessera_pixel_events DROP CONSTRAINT IF EXISTS tessera_pixel_events_canvas_id_check;
+    ALTER TABLE tessera_pixel_events ADD CONSTRAINT tessera_pixel_events_canvas_id_check
+      CHECK (canvas_id ~ '^[a-z0-9]([a-z0-9-]{1,30}[a-z0-9])?$') NOT VALID;
+    CREATE INDEX IF NOT EXISTS tessera_pixel_events_recent_idx
+      ON tessera_pixel_events (canvas_id, painted_at DESC);
     CREATE TABLE IF NOT EXISTS scope402_operation_receipts (
       operation_id uuid PRIMARY KEY,
       operation_kind text NOT NULL CHECK (operation_kind IN ('delegate_capability', 'place_pixel')),

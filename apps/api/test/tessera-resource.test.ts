@@ -19,6 +19,13 @@ test('maps sixteen non-overlapping root regions onto the 32 by 32 canvas', () =>
   assert.equal(new Set(regions.map(({ x, y }) => `${x}:${y}`)).size, 16)
 })
 
+test('binds the same geometry to a distinct safe canvas ID', () => {
+  assert.deepEqual(rootCanvasRegion(5, 'agent-garden'), {
+    kind: 'canvas-region', canvasId: 'agent-garden', x: 8, y: 8, width: 8, height: 8,
+  })
+  assert.throws(() => rootCanvasRegion(0, '../escape'), /Canvas ID/)
+})
+
 test('uses half-open rectangle boundaries', () => {
   const region = rootCanvasRegion(5)
   assert.equal(containsCanvasPoint(region, { canvasId: 'main', x: 8, y: 8 }), true)
@@ -39,7 +46,7 @@ test('rejects malformed and overflowing regions and points', () => {
     { kind: 'canvas-region', canvasId: 'main', x: 0, y: 0, width: 0, height: 8 },
     { kind: 'canvas-region', canvasId: 'main', x: 31, y: 0, width: 2, height: 8 },
     { kind: 'canvas-region', canvasId: 'main', x: Number.MAX_SAFE_INTEGER, y: 0, width: 8, height: 8 },
-    { kind: 'canvas-region', canvasId: 'other', x: 0, y: 0, width: 8, height: 8 },
+    { kind: 'canvas-region', canvasId: '../escape', x: 0, y: 0, width: 8, height: 8 },
   ]) assert.throws(() => parseCanvasRegion(region))
 
   const region = rootCanvasRegion(0)

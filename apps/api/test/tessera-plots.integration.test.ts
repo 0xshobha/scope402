@@ -44,6 +44,8 @@ async function cleanTessera() {
     `UPDATE tessera_slots SET quote_id = NULL, status = 'available',
        reservation_expires_at = NULL, transaction_id = NULL`)
   await database().query(`DELETE FROM payment_quotes WHERE merchant_id = 'tessera'`)
+  await database().query(`DELETE FROM tessera_slots WHERE canvas_id <> 'main'`)
+  await database().query(`DELETE FROM tessera_canvases WHERE canvas_id <> 'main'`)
 }
 
 function receipt(transaction: string) {
@@ -66,6 +68,7 @@ async function settledQuote() {
 test('reserves Tessera plots and issues one payment-bound root capability', async (t) => {
   const previousKey = process.env.TOOL_LEASE_PRIVATE_KEY
   const previousKeyPath = process.env.TOOL_LEASE_PRIVATE_KEY_PATH
+  const previousWorldLimit = process.env.TESSERA_WORLD_LIMIT
   process.env.TOOL_LEASE_PRIVATE_KEY = service.privateKey
     .export({ format: 'pem', type: 'pkcs8' }).toString()
   await initializeDatabase()
@@ -76,6 +79,8 @@ test('reserves Tessera plots and issues one payment-bound root capability', asyn
     else process.env.TOOL_LEASE_PRIVATE_KEY = previousKey
     if (previousKeyPath === undefined) delete process.env.TOOL_LEASE_PRIVATE_KEY_PATH
     else process.env.TOOL_LEASE_PRIVATE_KEY_PATH = previousKeyPath
+    if (previousWorldLimit === undefined) delete process.env.TESSERA_WORLD_LIMIT
+    else process.env.TESSERA_WORLD_LIMIT = previousWorldLimit
     await closeDatabase()
   })
 
@@ -99,6 +104,105 @@ test('reserves Tessera plots and issues one payment-bound root capability', asyn
       `SELECT count(*)::int AS count FROM tool_leases WHERE merchant_id = 'tessera'`)).rows[0].count, 0)
     await assert.rejects(loadPlotQuote(first.quoteId, 'main', 'another-subject', false),
       /missing, expired, or no longer owns/)
+    await cleanTessera()
+  })
+
+  await t.test('a player can reserve one exact available region and the quote stays bound to it', async () => {
+    const selected = await createPlotQuote(subjectPubkey, endpoint, requirements, pricing, audience, 7)
+    assert.deepEqual(selected.resource, {
+      kind: 'canvas-region', canvasId: 'main', x: 24, y: 8, width: 8, height: 8,
+    })
+    assert.equal((await loadPlotQuote(selected.quoteId, 'main', subjectPubkey, false, 7)).slot, 7)
+    assert.equal((await database().query(`SELECT count(*)::int AS count FROM tessera_slots
+      WHERE status = 'pending' AND reservation_expires_at > clock_timestamp()`)).rows[0].count, 1)
+    assert.equal((await database().query(`SELECT count(*)::int AS count FROM tessera_slots AS slot
+      JOIN payment_quotes AS quote ON quote.quote_id = slot.quote_id
+      WHERE slot.canvas_id = 'main' AND slot.status = 'pending'
+        AND slot.reservation_expires_at > clock_timestamp()`)).rows[0].count, 1)
+    const canvas = await (await app.request('/v1/canvas')).json()
+    assert.equal(canvas.world.reserved_territories, 1)
+    assert.deepEqual(canvas.reservations.map((item: { slot: number; status: string }) =>
+      ({ slot: item.slot, status: item.status })), [{ slot: 7, status: 'reserved' }])
+    assert.match(canvas.reservations[0].agent, /^agent:[0-9a-f]{12}$/)
+    await assert.rejects(loadPlotQuote(selected.quoteId, 'main', subjectPubkey),
+      /bound to another request/)
+    await assert.rejects(
+      createPlotQuote(subjectPubkey, endpoint, requirements, pricing, audience, 7),
+      (error: unknown) => (error as { code?: string }).code === 'REGION_UNAVAILABLE')
+    await cleanTessera()
+  })
+
+  await t.test('the first quote creates a separate named world and binds policy and state to it', async () => {
+    const custom = await createPlotQuote(subjectPubkey, endpoint, requirements, pricing, audience,
+      5, 'agent-garden')
+    assert.deepEqual(custom.resource, {
+      kind: 'canvas-region', canvasId: 'agent-garden', x: 8, y: 8, width: 8, height: 8,
+    })
+    const loaded = await loadPlotQuote(custom.quoteId, 'agent-garden', subjectPubkey, false, 5)
+    assert.equal(loaded.resource.canvasId, 'agent-garden')
+    assert.equal((await database().query(
+      `SELECT count(*)::integer AS count FROM tessera_slots WHERE canvas_id = 'agent-garden'`)
+    ).rows[0].count, 16)
+    const world = await app.request('/v1/canvas/agent-garden')
+    assert.equal(world.status, 200)
+    const canvas = await world.json()
+    assert.equal(canvas.canvas_id, 'agent-garden')
+    assert.equal(canvas.world.name, 'Agent Garden')
+    assert.equal(canvas.world.reserved_territories, 1)
+    assert.equal((await app.request('/v1/canvas/missing-world')).status, 404)
+    const catalogue = await (await app.request('/v1/canvases')).json()
+    assert.equal(catalogue.canvases.some((item: { canvas_id: string }) =>
+      item.canvas_id === 'agent-garden'), true)
+    await assert.rejects(loadPlotQuote(custom.quoteId, 'main', subjectPubkey, false, 5),
+      /bound to another request/)
+    await cleanTessera()
+  })
+
+  await t.test('concurrent world creation cannot exceed the configured public limit', async () => {
+    process.env.TESSERA_WORLD_LIMIT = '2'
+    const attempts = await Promise.allSettled([
+      createPlotQuote(subjectPubkey, endpoint, requirements, pricing, audience, 0, 'world-one'),
+      createPlotQuote(subjectPubkey, endpoint, requirements, pricing, audience, 0, 'world-two'),
+    ])
+    assert.equal(attempts.filter((attempt) => attempt.status === 'fulfilled').length, 1)
+    const rejection = attempts.find((attempt) => attempt.status === 'rejected')
+    assert.equal(rejection?.status, 'rejected')
+    if (rejection?.status === 'rejected') {
+      assert.equal((rejection.reason as { code?: string }).code, 'WORLD_LIMIT_REACHED')
+    }
+    assert.equal((await database().query(
+      `SELECT count(*)::integer AS count FROM tessera_canvases`)).rows[0].count, 2)
+    assert.equal((await database().query(
+      `SELECT count(*)::integer AS count FROM tessera_slots WHERE canvas_id <> 'main'`)).rows[0].count, 16)
+    delete process.env.TESSERA_WORLD_LIMIT
+    await cleanTessera()
+  })
+
+  await t.test('an expired unpaid empty world is reclaimed before the public limit blocks newcomers', async () => {
+    process.env.TESSERA_WORLD_LIMIT = '2'
+    const abandoned = await createPlotQuote(subjectPubkey, endpoint, requirements, pricing, audience,
+      0, 'abandoned-world')
+    await database().query(
+      `UPDATE payment_quotes SET expires_at = clock_timestamp() - interval '1 minute'
+       WHERE quote_id = $1`, [abandoned.quoteId])
+    await database().query(
+      `UPDATE tessera_slots SET reservation_expires_at = clock_timestamp() - interval '1 minute'
+       WHERE quote_id = $1`, [abandoned.quoteId])
+    await database().query(
+      `UPDATE tessera_canvases SET created_at = clock_timestamp() - interval '6 minutes'
+       WHERE canvas_id = 'abandoned-world'`)
+
+    const replacement = await createPlotQuote(subjectPubkey, endpoint, requirements, pricing, audience,
+      0, 'new-world')
+    assert.equal(replacement.resource.canvasId, 'new-world')
+    assert.equal((await database().query(
+      `SELECT count(*)::integer AS count FROM tessera_canvases`)).rows[0].count, 2)
+    assert.equal((await database().query(
+      `SELECT count(*)::integer AS count FROM tessera_canvases
+       WHERE canvas_id = 'abandoned-world'`)).rows[0].count, 0)
+    await assert.rejects(loadPlotQuote(abandoned.quoteId, 'abandoned-world', subjectPubkey, true, 0),
+      /missing, expired, or no longer owns/)
+    delete process.env.TESSERA_WORLD_LIMIT
     await cleanTessera()
   })
 
@@ -219,6 +323,22 @@ test('reserves Tessera plots and issues one payment-bound root capability', asyn
     assert.notDeepEqual(next.resource, purchased.quote.resource)
     assert.deepEqual((await loadPlotQuote(
       purchased.quote.quoteId, 'main', subjectPubkey, true)).resource, purchased.quote.resource)
+    await cleanTessera()
+  })
+
+  await t.test('an expired purchased territory can be claimed again without reviving its old lease', async () => {
+    const purchased = await settledQuote()
+    const completed = await fulfillPaidPlot({ transactionId: purchased.transactionId,
+      quoteId: purchased.quote.quoteId, subjectPubkey, requirements,
+      receipt: receipt(purchased.transactionId), policy: purchased.quote.extensions.scope402.info })
+    const slot = (await loadPlotQuote(purchased.quote.quoteId, 'main', subjectPubkey, true)).slot
+    await database().query(`UPDATE tool_leases SET expires_at = now() - interval '1 minute'
+      WHERE lease_id = $1`, [completed.lease.lease_id])
+
+    const reclaimed = await createPlotQuote(subjectPubkey, endpoint, requirements, pricing, audience, slot)
+    assert.deepEqual(reclaimed.resource, purchased.quote.resource)
+    await assert.rejects(loadPlotQuote(purchased.quote.quoteId, 'main', subjectPubkey, true),
+      /no longer owns/)
     await cleanTessera()
   })
 

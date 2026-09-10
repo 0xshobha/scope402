@@ -77,11 +77,19 @@ export type TesseraPaintResult = {
 }
 
 export type TesseraCanvas = {
-  canvas_id: 'main'
+  canvas_id: string
   width: 32
   height: 32
   palette: string[]
-  pixels: Array<{ x: number; y: number; color: string; updated_at: number }>
+  world: { name: string; painted_pixels: number; total_placements: number; total_pixels: number;
+    completion_percent: number; current_painters: number;
+    active_territories: number; reserved_territories: number }
+  pixels: Array<{ x: number; y: number; color: string; updated_at: number; agent?: string }>
+  leaderboard: Array<{ agent: string; placements: number; current_pixels: number; last_active: number }>
+  recent_activity: Array<{ x: number; y: number; color: string; counter: number;
+    painted_at: number; agent: string }>
+  reservations: Array<CanvasRegion & { slot: number; agent: string; expires_at: number;
+    status: 'reserved' }>
   regions: Array<{
     slot: number
     kind: 'canvas-region'
@@ -91,11 +99,22 @@ export type TesseraCanvas = {
     width: number
     height: number
     lease_id: string
+    agent?: string
     expires_at: number
     remaining_calls: number
     active: boolean
     status: 'active' | 'expired'
   }>
+}
+
+export type TesseraCanvasSummary = {
+  canvas_id: string
+  name: string
+  width: number
+  height: number
+  created_at: number
+  painted_pixels: number
+  claimed_territories: number
 }
 
 export type TesseraActionName =
@@ -156,9 +175,11 @@ function assertRun(value: TesseraRun): TesseraRun {
   return { ...value, paint_events: Array.isArray(value.paint_events) ? value.paint_events : [] }
 }
 
-export async function createTesseraRun() {
+export async function createTesseraRun(slot?: number, canvasId = 'main') {
   const response = await fetch(endpoint(agentBase, '/tessera/runs'), {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...(canvasId === 'main' ? {} : { canvas_id: canvasId }),
+      ...(slot === undefined ? {} : { slot }) }),
     signal: AbortSignal.timeout(30_000),
   })
   const prepared = await readResponse<PreparedRun>(response)
@@ -203,16 +224,42 @@ export async function paintTesseraPixel(runId: string, token: string,
 export async function getTesseraAgentHealth() {
   const response = await fetch(endpoint(agentBase, '/health'), { cache: 'no-store',
     signal: AbortSignal.timeout(10_000) })
-  const health = await readResponse<{ ok: true; service: string; features?: { tessera?: boolean } }>(response)
-  if (health.features?.tessera !== true) {
-    throw new Error('TESSERA_AGENT_REVISION_UNAVAILABLE: The hosted agent is online, but Tessera is not deployed.')
+  const health = await readResponse<{ ok: true; service: string;
+    features?: { tessera?: boolean; tessera_worlds?: boolean };
+    contracts?: { tessera_runs?: number } }>(response)
+  if (health.features?.tessera_worlds !== true || health.contracts?.tessera_runs !== 2) {
+    throw new Error('TESSERA_AGENT_REVISION_UNAVAILABLE: The hosted agent is online, but it does not support named worlds yet.')
   }
   return health
 }
 
-export async function getTesseraCanvas() {
-  const response = await fetch(endpoint(apiBase, '/v1/canvas'), {
+export async function getTesseraCanvas(canvasId = 'main') {
+  const path = canvasId === 'main' ? '/v1/canvas' : `/v1/canvas/${encodeURIComponent(canvasId)}`
+  const response = await fetch(endpoint(apiBase, path), {
     cache: 'no-store', signal: AbortSignal.timeout(15_000),
   })
-  return readResponse<TesseraCanvas>(response)
+  const canvas = await readResponse<TesseraCanvas>(response)
+  const painted = Array.isArray(canvas.pixels) ? canvas.pixels.length : 0
+  const world = canvas.world
+  return { ...canvas,
+    world: { name: world?.name ?? 'Opal World',
+      painted_pixels: world?.painted_pixels ?? painted,
+      total_placements: world?.total_placements ?? painted,
+      total_pixels: canvas.width * canvas.height,
+      completion_percent: world?.completion_percent ??
+        Number(((painted / (canvas.width * canvas.height)) * 100).toFixed(2)),
+      current_painters: world?.current_painters ?? 0,
+      active_territories: world?.active_territories ?? 0,
+      reserved_territories: world?.reserved_territories ?? 0 },
+    leaderboard: Array.isArray(canvas.leaderboard) ? canvas.leaderboard : [],
+    recent_activity: Array.isArray(canvas.recent_activity) ? canvas.recent_activity : [],
+    reservations: Array.isArray(canvas.reservations) ? canvas.reservations : [] }
+}
+
+export async function getTesseraCanvases() {
+  const response = await fetch(endpoint(apiBase, '/v1/canvases'), {
+    cache: 'no-store', signal: AbortSignal.timeout(15_000),
+  })
+  const value = await readResponse<{ canvases: TesseraCanvasSummary[] }>(response)
+  return Array.isArray(value.canvases) ? value.canvases : []
 }

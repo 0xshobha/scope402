@@ -37,6 +37,30 @@ function fixture(): { prepared: PreparedScan; result: ScanResult } {
   return { prepared, result }
 }
 
+test('health identifies the named-world Tessera run contract', async () => {
+  const data = fixture()
+  const service = new DemoRunService({
+    prepare: async () => data.prepared, approve: async () => ({ result: data.result }),
+    payerBalanceTinybars: async () => 10_000_000n,
+  }, limits)
+  const withoutTessera = await createDemoAgentApp(service, new Set()).request('/health')
+  assert.deepEqual(await withoutTessera.json(), { ok: true, service: 'scope402-demo-agent',
+    mode: 'hedera-testnet-only', features: { auditlab: true, tessera: false,
+      tessera_worlds: false }, contracts: { tessera_runs: 0 } })
+
+  const tessera = new TesseraRunService({
+    prepare: async () => { throw new Error('not called') },
+    approve: async () => { throw new Error('not called') },
+    payerBalanceTinybars: async () => 10_000_000n,
+    createCapabilitySession: () => { throw new Error('not called') },
+  }, limits, new HostedAgentGuard(limits))
+  const current = await createDemoAgentApp(service, new Set(), 'none', tessera).request('/health')
+  const body = await current.json() as { features: { tessera_worlds: boolean };
+    contracts: { tessera_runs: number } }
+  assert.equal(body.features.tessera_worlds, true)
+  assert.equal(body.contracts.tessera_runs, 2)
+})
+
 test('HTTP boundary accepts only repo_url and rejects browser payment fields', async () => {
   const data = fixture()
   const app = createDemoAgentApp(new DemoRunService({
@@ -150,8 +174,14 @@ test('Tessera HTTP boundary accepts no browser-controlled payment or authority f
   const audit = new DemoRunService({ prepare: async () => data.prepared,
     approve: async () => ({ result: data.result }), payerBalanceTinybars: async () => 10_000_000n,
   }, limits, guard)
+  let selectedSlot: number | undefined
+  let selectedCanvas: string | undefined
   const tessera = new TesseraRunService({
-    prepare: async (subject) => ({ ...prepared, subject }), approve: async () => ({ result }),
+    prepare: async (subject, requestedSlot, canvasId) => {
+      selectedSlot = requestedSlot
+      selectedCanvas = canvasId
+      return { ...prepared, subject }
+    }, approve: async () => ({ result }),
     payerBalanceTinybars: async () => 10_000_000n,
     createCapabilitySession: () => ({ root: () => ({ lease_id: 'root', subject: rootSubject.subjectPubkey,
       resource: region, tool_ids: ['place_pixel'], max_calls: 12, remaining_calls: 12,
@@ -166,8 +196,15 @@ test('Tessera HTTP boundary accepts no browser-controlled payment or authority f
   const injectedCreate = await app.request('/tessera/runs', { method: 'POST',
     headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ amount: '1' }) })
   assert.equal(injectedCreate.status, 400)
-  const created = await app.request('/tessera/runs', { method: 'POST', body: '{}' })
+  const invalidCanvas = await app.request('/tessera/runs', { method: 'POST',
+    headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ canvas_id: '../escape' }) })
+  assert.equal(invalidCanvas.status, 400)
+  const created = await app.request('/tessera/runs', { method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ canvas_id: 'agent-garden', slot: 0 }) })
   assert.equal(created.status, 202)
+  assert.equal(selectedSlot, 0)
+  assert.equal(selectedCanvas, 'agent-garden')
   const run = await created.json() as { run: { run_id: string }; run_token: string }
   const noToken = await app.request(`/tessera/runs/${run.run.run_id}`)
   assert.equal(noToken.status, 404)

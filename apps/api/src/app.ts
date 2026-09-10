@@ -6,6 +6,7 @@ import { leaseControls } from './lease-controls.js'
 import { scans } from './scans.js'
 import { plots } from './plots.js'
 import { tesseraCanvas } from './merchants/tessera/canvas.js'
+import { tesseraCanvases } from './merchants/tessera/canvases.js'
 import { tesseraTools } from './merchants/tessera/tools.js'
 import { tools } from './tools.js'
 import { checkReadiness } from './readiness.js'
@@ -17,6 +18,8 @@ app.use('/health', publicReadCors)
 app.use('/ready', publicReadCors)
 app.use('/.well-known/scope402', publicReadCors)
 app.use('/v1/canvas', publicReadCors)
+app.use('/v1/canvas/*', publicReadCors)
+app.use('/v1/canvases', publicReadCors)
 
 app.get('/health', (c) => c.json({ ok: true, service: 'auditlab' }))
 app.get('/ready', async (c) => {
@@ -32,5 +35,6 @@ app.route('/v1/leases', delegations)
 app.route('/v1/scans', scans)
 app.route('/v1/plots', plots)
 app.route('/v1/canvas', tesseraCanvas)
+app.route('/v1/canvases', tesseraCanvases)
 app.route('/v1/tools', tools)
 app.route('/v1/tools', tesseraTools)

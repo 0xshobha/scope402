@@ -15,6 +15,9 @@ export default defineConfig({
     },
   },
   server: {
+    // Keep the public hosted agent as the default, while allowing a developer
+    // to run the same guarded agent locally for a complete end-to-end check.
+    // No credentials are read by the browser; this only changes the dev proxy.
     proxy: {
       '/auditlab': {
         target: 'https://scope402-auditlab.onrender.com',
@@ -22,7 +25,8 @@ export default defineConfig({
         rewrite: (path) => path.replace(/^\/auditlab/, ''),
       },
       '/demo-agent': {
-        target: 'https://scope402-demo-agent.onrender.com',
+        target: process.env.VITE_TESSERA_AGENT_URL ?? process.env.VITE_DEMO_AGENT_URL ??
+          'https://scope402-demo-agent.onrender.com',
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/demo-agent/, ''),
       },

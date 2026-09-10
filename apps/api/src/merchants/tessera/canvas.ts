@@ -1,19 +1,59 @@
-import { Hono } from 'hono'
+import { createHash } from 'node:crypto'
+import { Hono, type Context } from 'hono'
 import { database } from '../../db.js'
 import { TESSERA_PALETTE } from './palette.js'
-import { rootCanvasRegion, TESSERA_CANVAS_ID, TESSERA_CANVAS_SIZE } from './resource.js'
+import { rootCanvasRegion, parseCanvasId, TESSERA_CANVAS_ID } from './resource.js'
 
 export const tesseraCanvas = new Hono()
-tesseraCanvas.get('/', async (c) => {
+
+function agentFingerprint(subjectPubkey: unknown) {
+  return `agent:${createHash('sha256').update(String(subjectPubkey)).digest('hex').slice(0, 12)}`
+}
+
+async function canvasResponse(c: Context, rawCanvasId: unknown) {
   try {
-    const [pixels, regions] = await Promise.all([
+    const canvasId = parseCanvasId(rawCanvasId)
+    const [canvas, pixels, contributionRows, events, reservations, regions] = await Promise.all([
       database().query(
-        `SELECT x, y, color, extract(epoch from updated_at)::bigint AS updated_at
-         FROM tessera_pixels WHERE canvas_id = $1 ORDER BY y, x`,
-        [TESSERA_CANVAS_ID],
+        `SELECT name, width, height FROM tessera_canvases WHERE canvas_id = $1`, [canvasId]),
+      database().query(
+        `SELECT pixel.x, pixel.y, pixel.color, pixel.lease_id, lease.subject_pubkey,
+                extract(epoch from pixel.updated_at)::bigint AS updated_at
+         FROM tessera_pixels AS pixel
+         JOIN tool_leases AS lease ON lease.lease_id = pixel.lease_id
+         WHERE pixel.canvas_id = $1 ORDER BY pixel.y, pixel.x`,
+        [canvasId],
       ),
       database().query(
-        `SELECT slot.slot, job.lease_id,
+        `SELECT lease.subject_pubkey, count(*)::integer AS placements,
+                extract(epoch from max(event.painted_at))::bigint AS last_active
+         FROM tessera_pixel_events AS event
+         JOIN tool_leases AS lease ON lease.lease_id = event.lease_id
+         WHERE event.canvas_id = $1
+         GROUP BY lease.subject_pubkey`,
+        [canvasId],
+      ),
+      database().query(
+        `SELECT event.x, event.y, event.color, event.counter, lease.subject_pubkey,
+                extract(epoch from event.painted_at)::bigint AS painted_at
+         FROM tessera_pixel_events AS event
+         JOIN tool_leases AS lease ON lease.lease_id = event.lease_id
+         WHERE event.canvas_id = $1
+         ORDER BY event.painted_at DESC, event.event_id DESC LIMIT 12`,
+        [canvasId],
+      ),
+      database().query(
+        `SELECT slot.slot, quote.subject_pubkey,
+                extract(epoch from slot.reservation_expires_at)::bigint AS expires_at
+         FROM tessera_slots AS slot
+         JOIN payment_quotes AS quote ON quote.quote_id = slot.quote_id
+         WHERE slot.canvas_id = $1 AND slot.status = 'pending'
+           AND slot.reservation_expires_at > clock_timestamp()
+         ORDER BY slot.slot`,
+        [canvasId],
+      ),
+      database().query(
+        `SELECT slot.slot, job.lease_id, lease.subject_pubkey,
                 extract(epoch from lease.expires_at)::bigint AS expires_at,
                 lease.max_calls - lease.used_calls - lease.reserved_calls AS remaining_calls,
                 lease.expires_at > now() AS active
@@ -22,20 +62,58 @@ tesseraCanvas.get('/', async (c) => {
          JOIN tool_leases AS lease ON lease.lease_id = job.lease_id
          WHERE slot.canvas_id = $1 AND slot.status = 'allocated'
          ORDER BY slot.slot`,
-        [TESSERA_CANVAS_ID],
+        [canvasId],
       ),
     ])
+    if (canvas.rowCount !== 1) return c.json({ error: 'CANVAS_NOT_FOUND',
+      message: 'This Tessera canvas does not exist' }, 404)
+    const metadata = canvas.rows[0]
+    const width = Number(metadata.width)
+    const height = Number(metadata.height)
+    const publicPixels = pixels.rows.map((row) => ({ x: Number(row.x), y: Number(row.y),
+      color: String(row.color), updated_at: Number(row.updated_at),
+      agent: agentFingerprint(row.subject_pubkey) }))
+    const ownership = new Map<string, { agent: string; current_pixels: number }>()
+    for (const pixel of publicPixels) {
+      const current = ownership.get(pixel.agent)
+      ownership.set(pixel.agent, { agent: pixel.agent,
+        current_pixels: (current?.current_pixels ?? 0) + 1 })
+    }
+    const recentActivity = events.rows.map((row) => ({ x: Number(row.x), y: Number(row.y),
+      color: String(row.color), counter: Number(row.counter),
+      agent: agentFingerprint(row.subject_pubkey), painted_at: Number(row.painted_at) }))
+    const contributions = contributionRows.rows.map((row) => ({ agent: agentFingerprint(row.subject_pubkey),
+      placements: Number(row.placements), last_active: Number(row.last_active) }))
+    const leaderboard = contributions.sort((left, right) =>
+      right.placements - left.placements || right.last_active - left.last_active ||
+      left.agent.localeCompare(right.agent)).slice(0, 10).map((entry) => ({ ...entry,
+        current_pixels: ownership.get(entry.agent)?.current_pixels ?? 0 }))
+    const totalPlacements = contributions.reduce((total, entry) => total + entry.placements, 0)
     c.header('Cache-Control', 'no-store')
-    return c.json({ canvas_id: TESSERA_CANVAS_ID, width: TESSERA_CANVAS_SIZE,
-      height: TESSERA_CANVAS_SIZE, palette: TESSERA_PALETTE,
-      pixels: pixels.rows.map((row) => ({ x: Number(row.x), y: Number(row.y),
-        color: String(row.color), updated_at: Number(row.updated_at) })),
+    return c.json({ canvas_id: canvasId, width, height, palette: TESSERA_PALETTE,
+      world: { name: String(metadata.name), painted_pixels: publicPixels.length,
+        total_placements: totalPlacements,
+        total_pixels: width * height,
+        completion_percent: Number(((publicPixels.length / (width * height)) * 100).toFixed(2)),
+        current_painters: ownership.size,
+        active_territories: regions.rows.filter((row) => Boolean(row.active)).length,
+        reserved_territories: reservations.rows.length },
+      pixels: publicPixels,
+      leaderboard,
+      recent_activity: recentActivity,
+      reservations: reservations.rows.map((row) => ({ slot: Number(row.slot),
+        ...rootCanvasRegion(Number(row.slot), canvasId), agent: agentFingerprint(row.subject_pubkey),
+        expires_at: Number(row.expires_at), status: 'reserved' as const })),
       regions: regions.rows.map((row) => ({ slot: Number(row.slot),
-        ...rootCanvasRegion(Number(row.slot)), lease_id: String(row.lease_id),
+        ...rootCanvasRegion(Number(row.slot), canvasId), lease_id: String(row.lease_id),
+        agent: agentFingerprint(row.subject_pubkey),
         expires_at: Number(row.expires_at), remaining_calls: Number(row.remaining_calls),
         active: Boolean(row.active), status: row.active ? 'active' : 'expired' })) })
   } catch (error) {
     console.error(`Tessera canvas read failed: ${error instanceof Error ? error.message : 'unknown error'}`)
     return c.json({ error: 'CANVAS_UNAVAILABLE', message: 'Canvas state is temporarily unavailable' }, 503)
   }
-})
+}
+
+tesseraCanvas.get('/', (c) => canvasResponse(c, TESSERA_CANVAS_ID))
+tesseraCanvas.get('/:canvasId', (c) => canvasResponse(c, c.req.param('canvasId')))

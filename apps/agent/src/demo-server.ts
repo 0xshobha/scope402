@@ -88,7 +88,8 @@ const service = new DemoRunService({
   logError: (message) => console.error(`Demo approval failed: ${message}`),
 }, limits, hostedGuard)
 const tessera = new TesseraRunService({
-  prepare: (subject) => preparePlotPurchase(payerConfig, subject),
+  prepare: (subject, requestedSlot, canvasId) =>
+    preparePlotPurchase(payerConfig, subject, fetch, requestedSlot, canvasId),
   approve: (prepared) => approvePlotPurchase(payerConfig, prepared),
   payerBalanceTinybars: () => payerBalanceTinybars(payerConfig.payer),
   createCapabilitySession: (prepared, result, worker) =>

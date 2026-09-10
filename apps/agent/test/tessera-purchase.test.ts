@@ -25,9 +25,9 @@ const discovery = {
   resources: { tessera_plot: { method: 'POST', path: '/v1/plots' } },
 }
 
-function paymentRequired(subjectPubkey: string) {
+function paymentRequired(subjectPubkey: string, quotedRegion = region) {
   const capability = { version: 1, subject: { scheme: 'p256', publicKey: subjectPubkey },
-    audience: new URL('/v1/tools', baseUrl).href, resource: region,
+    audience: new URL('/v1/tools', baseUrl).href, resource: quotedRegion,
     tools: ['place_pixel'], maxCalls: 12, ttlSeconds: 300 }
   return { x402Version: 2 as const, resource: { url: paymentUrl }, accepts: [terms],
     extensions: { scope402: { info: { ...capability,
@@ -38,10 +38,11 @@ function paymentRequired(subjectPubkey: string) {
 test('prepares a real Tessera 402 without moving HBAR', async () => {
   const subject = ephemeralSubject()
   const required = paymentRequired(subject.subjectPubkey)
-  const calls: Array<{ url: string; payment?: string }> = []
+  const calls: Array<{ url: string; payment?: string; body?: string }> = []
   const request = (async (input, init) => {
     const url = String(input)
-    calls.push({ url, payment: new Headers(init?.headers).get('PAYMENT-SIGNATURE') ?? undefined })
+    calls.push({ url, payment: new Headers(init?.headers).get('PAYMENT-SIGNATURE') ?? undefined,
+      body: typeof init?.body === 'string' ? init.body : undefined })
     if (url.endsWith('/.well-known/scope402')) return Response.json(discovery)
     assert.equal(url, plotUrl.href)
     return new Response(JSON.stringify({ ...required,
@@ -49,13 +50,45 @@ test('prepares a real Tessera 402 without moving HBAR', async () => {
       status: 402, headers: { 'PAYMENT-REQUIRED': encodePaymentRequiredHeader(required) },
     })
   }) as typeof fetch
-  const prepared = await preparePlotPurchase(policy, subject, request)
+  const prepared = await preparePlotPurchase(policy, subject, request, 0)
   assert.doesNotThrow(() => assertPreparedPlot(policy, prepared))
   assert.equal(prepared.terms.amount, '56000')
   assert.deepEqual(prepared.quote.region, region)
   assert.equal(prepared.quote.policy_hash, required.extensions.scope402.info.policyHash)
   assert.equal(calls.length, 2)
   assert.equal(calls.some((call) => call.payment), false)
+  assert.deepEqual(JSON.parse(calls[1]!.body!), {
+    canvas_id: 'main', subject_pubkey: subject.subjectPubkey, slot: 0,
+  })
+})
+
+test('binds a custom-world preparation to the requested canvas before payment', async () => {
+  const subject = ephemeralSubject()
+  const customRegion = { ...region, canvasId: 'agent-garden' }
+  const required = paymentRequired(subject.subjectPubkey, customRegion)
+  let plotBody: Record<string, unknown> | undefined
+  const request = (async (input, init) => {
+    if (String(input).endsWith('/.well-known/scope402')) return Response.json(discovery)
+    plotBody = JSON.parse(String(init?.body)) as Record<string, unknown>
+    return new Response(JSON.stringify({ ...required,
+      quote: { canvas_id: 'agent-garden', region: customRegion, pricing } }), {
+      status: 402, headers: { 'PAYMENT-REQUIRED': encodePaymentRequiredHeader(required) },
+    })
+  }) as typeof fetch
+  const prepared = await preparePlotPurchase(policy, subject, request, 0, 'agent-garden')
+  assert.deepEqual(plotBody, {
+    canvas_id: 'agent-garden', subject_pubkey: subject.subjectPubkey, slot: 0,
+  })
+  assert.equal(prepared.quote.canvas_id, 'agent-garden')
+  assert.equal(prepared.quote.region.canvasId, 'agent-garden')
+  assert.doesNotThrow(() => assertPreparedPlot(policy, prepared))
+})
+
+test('rejects invalid player-selected Tessera slots before making a request', async () => {
+  let requests = 0
+  const request = (async () => { requests += 1; throw new Error('not reached') }) as typeof fetch
+  await assert.rejects(preparePlotPurchase(policy, ephemeralSubject(), request, 16), /between 0 and 15/)
+  assert.equal(requests, 0)
 })
 
 test('rejects a Tessera policy or prepared quote changed before approval', async () => {

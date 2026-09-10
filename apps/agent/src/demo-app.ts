@@ -40,7 +40,8 @@ export function createDemoAgentApp(service: DemoRunService, allowedOrigins: Set<
     c.header('Cache-Control', 'no-store')
   })
   app.get('/health', (c) => c.json({ ok: true, service: 'scope402-demo-agent',
-    mode: 'hedera-testnet-only', features: { auditlab: true, tessera: Boolean(tessera) } }))
+    mode: 'hedera-testnet-only', features: { auditlab: true, tessera: Boolean(tessera),
+      tessera_worlds: Boolean(tessera) }, contracts: { tessera_runs: tessera ? 2 : 0 } }))
   app.post('/demo/runs', async (c) => {
     try {
       let value: unknown
@@ -100,11 +101,29 @@ export function createDemoAgentApp(service: DemoRunService, allowedOrigins: Set<
   app.post('/tessera/runs', async (c) => {
     try {
       if (!tessera) throw new DemoRunError('TESSERA_UNAVAILABLE', 404, 'Tessera agent is not configured')
-      const body = await c.req.text()
-      if (body.trim() && body.trim() !== '{}') {
-        throw new DemoRunError('INVALID_REQUEST', 400, 'Tessera run creation accepts no caller-controlled fields')
+      let value: unknown
+      try {
+        const body = await c.req.text()
+        value = body.trim() ? JSON.parse(body) : {}
+      } catch {
+        throw new DemoRunError('INVALID_REQUEST', 400, 'Expected valid JSON')
       }
-      return c.json(await tessera.create(clientIp(c.req.header('cf-connecting-ip'), trustedProxy)), 202)
+      if (!value || typeof value !== 'object' || Array.isArray(value)) {
+        throw new DemoRunError('INVALID_REQUEST', 400, 'Expected a JSON object')
+      }
+      const input = value as Record<string, unknown>
+      const keys = Object.keys(input).sort()
+      if (!['', 'canvas_id', 'canvas_id,slot', 'slot'].includes(keys.join(',')) ||
+          (input.slot !== undefined && (!Number.isSafeInteger(input.slot) || Number(input.slot) < 0 ||
+            Number(input.slot) >= 16)) ||
+          (input.canvas_id !== undefined && (typeof input.canvas_id !== 'string' ||
+            !/^[a-z0-9](?:[a-z0-9-]{1,30}[a-z0-9])?$/.test(input.canvas_id)))) {
+        throw new DemoRunError('INVALID_REQUEST', 400,
+          'Tessera run creation accepts only a safe canvas_id and optional slot from 0 to 15')
+      }
+      return c.json(await tessera.create(clientIp(c.req.header('cf-connecting-ip'), trustedProxy),
+        input.slot === undefined ? undefined : Number(input.slot),
+        input.canvas_id === undefined ? 'main' : input.canvas_id), 202)
     } catch (error) {
       return demoError(c, error)
     }

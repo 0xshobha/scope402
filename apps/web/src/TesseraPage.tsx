@@ -1,19 +1,70 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   approveTesseraRun, createTesseraRun, executeTesseraAction, getTesseraAgentHealth,
-  getTesseraCanvas, getTesseraRun, paintTesseraPixel,
+  getTesseraCanvas, getTesseraCanvases, getTesseraRun, paintTesseraPixel,
   publicTesseraAgentUrl, publicTesseraApiUrl,
   type CanvasRegion, type TesseraActionName, type TesseraActionResult,
-  type TesseraCanvas, type TesseraCapability, type TesseraRun,
+  type TesseraCanvas, type TesseraCanvasSummary, type TesseraCapability, type TesseraRun,
 } from './tessera-api.js'
 
 const storedRunId = 'scope402-tessera-run-id'
 const storedRunToken = 'scope402-tessera-run-token'
+const storedCanvasId = 'scope402-tessera-canvas-id'
+const canvasIdPattern = /^[a-z0-9](?:[a-z0-9-]{1,30}[a-z0-9])?$/
+
+function initialCanvasId() {
+  const linked = new URL(window.location.href).searchParams.get('world')
+  if (linked && canvasIdPattern.test(linked)) return linked
+  const stored = window.sessionStorage.getItem(storedCanvasId)
+  return stored && canvasIdPattern.test(stored) ? stored : 'main'
+}
+
+function updateWorldUrl(canvasId: string) {
+  const url = new URL(window.location.href)
+  if (canvasId === 'main') url.searchParams.delete('world')
+  else url.searchParams.set('world', canvasId)
+  window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`)
+}
+
+function initialMissionId() {
+  const mission = new URL(window.location.href).searchParams.get('mission')
+  return mission && ['spark', 'crown', 'arrow'].includes(mission) ? mission : 'spark'
+}
+
+function updateMissionUrl(missionId: string) {
+  const url = new URL(window.location.href)
+  url.searchParams.set('mission', missionId)
+  window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`)
+}
 const actionLabels: Record<TesseraActionName, string> = {
   delegate: '2 · GIVE WORKER LESS ACCESS', 'place-outside': '3 · TRY OUTSIDE ITS AREA',
   'wrong-key': '4 · TRY A DIFFERENT KEY', 'place-inside': '5 · PLACE ALLOWED PIXEL', replay: '6 · REPLAY SAME REQUEST',
   expire: '7 · EXPIRE AND RETRY',
 }
+
+type MissionTemplate = { id: string; name: string; description: string;
+  targets: Array<{ dx: number; dy: number; worker?: boolean }> }
+
+const missionTemplates: MissionTemplate[] = [
+  { id: 'spark', name: 'SIGNAL SPARK', description: 'Eight principal pixels surround one worker pixel.',
+    targets: [
+      { dx: 2, dy: 0 }, { dx: 2, dy: 1 }, { dx: 0, dy: 2 }, { dx: 1, dy: 2 },
+      { dx: 2, dy: 2, worker: true }, { dx: 3, dy: 2 }, { dx: 4, dy: 2 },
+      { dx: 2, dy: 3 }, { dx: 2, dy: 4 },
+    ] },
+  { id: 'crown', name: 'AGENT CROWN', description: 'The worker anchors the centre of a shared crown.',
+    targets: [
+      { dx: 0, dy: 1 }, { dx: 0, dy: 2 }, { dx: 1, dy: 3 }, { dx: 2, dy: 2, worker: true },
+      { dx: 3, dy: 3 }, { dx: 4, dy: 2 }, { dx: 4, dy: 1 }, { dx: 1, dy: 4 },
+      { dx: 2, dy: 4 }, { dx: 3, dy: 4 },
+    ] },
+  { id: 'arrow', name: 'DELEGATION ARROW', description: 'Principal pixels point to the worker-owned tip.',
+    targets: [
+      { dx: 0, dy: 2 }, { dx: 1, dy: 2 }, { dx: 2, dy: 2, worker: true }, { dx: 3, dy: 2 },
+      { dx: 4, dy: 2 }, { dx: 3, dy: 1 }, { dx: 3, dy: 3 }, { dx: 2, dy: 0 },
+      { dx: 2, dy: 4 },
+    ] },
+]
 
 function short(value: string | undefined, start = 13, end = 8) {
   if (!value) return '—'
@@ -34,6 +85,14 @@ function LeaseCountdown({ exp }: { exp: number }) {
 
 function regionLabel(region: CanvasRegion | undefined) {
   return region ? `${region.width} × ${region.height} · (${region.x}, ${region.y})` : '—'
+}
+
+function sameActor(capabilitySubject: string | undefined, pixelAgent: string | undefined) {
+  if (!capabilitySubject || !pixelAgent) return false
+  const capabilityDigest = capabilitySubject.split(':').at(-1)
+  const pixelDigest = pixelAgent.split(':').at(-1)
+  return Boolean(capabilityDigest && pixelDigest &&
+    (capabilityDigest.startsWith(pixelDigest) || pixelDigest.startsWith(capabilityDigest)))
 }
 
 function capabilityValue(capability: TesseraCapability | undefined, field: keyof TesseraCapability) {
@@ -95,50 +154,150 @@ function PurchaseProof({ run }: { run?: TesseraRun }) {
   </section>
 }
 
-function CanvasPanel({ canvas, run, action, selected, onSelect, selectedColor, onColor, onPaint, paintDisabled }: {
+function CanvasPanel({ canvas, run, action, selected, onSelect, selectedSlot, onSlotSelect,
+  selectedColor, onColor, onPaint, onPrepare, paintDisabled, preparing, previewWorld }: {
   canvas?: TesseraCanvas
   run?: TesseraRun
   action?: TesseraActionResult
   selected?: { x: number; y: number }
   onSelect(x: number, y: number): void
+  selectedSlot?: number
+  onSlotSelect(slot: number): void
   selectedColor: string
   onColor(color: string): void
   onPaint(): void
+  onPrepare(): void
   paintDisabled: boolean
+  preparing: boolean
+  previewWorld?: { canvas_id: string; name: string }
 }) {
-  const pixels = useMemo(() => new Map((canvas?.pixels ?? []).map((pixel) => [`${pixel.x}:${pixel.y}`, pixel.color])), [canvas])
+  const [zoom, setZoom] = useState(1)
+  const [missionId, setMissionId] = useState(initialMissionId)
+  useEffect(() => updateMissionUrl(missionId), [missionId])
+  const pixels = useMemo(() => new Map((canvas?.pixels ?? []).map((pixel) => [`${pixel.x}:${pixel.y}`, pixel])), [canvas])
   const root = run?.root?.resource
   const child = run?.child?.resource
+  const quotedRegion = run?.quote?.region
+  const quotedSlot = quotedRegion ? Math.floor(quotedRegion.y / 8) * 4 + Math.floor(quotedRegion.x / 8) : undefined
+  const chosenSlot = quotedSlot ?? selectedSlot
+  const mission = missionTemplates.find((item) => item.id === missionId) ?? missionTemplates[0]!
+  const missionOrigin = root ?? quotedRegion ?? (chosenSlot === undefined ? undefined : {
+    x: (chosenSlot % 4) * 8, y: Math.floor(chosenSlot / 4) * 8,
+  })
+  const missionTargets = new Map(missionOrigin ? mission.targets.map((target) => [
+    `${missionOrigin.x + target.dx}:${missionOrigin.y + target.dy}`, target,
+  ]) : [])
+  const missionComplete = missionOrigin ? mission.targets.filter((target) => {
+    const pixel = pixels.get(`${missionOrigin.x + target.dx}:${missionOrigin.y + target.dy}`)
+    return sameActor(target.worker ? run?.child?.subject : run?.root?.subject, pixel?.agent)
+  }).length : 0
+  const territories = Array.from({ length: 16 }, (_, slot) => {
+    const column = String.fromCharCode(65 + slot % 4)
+    const row = Math.floor(slot / 4) + 1
+    const active = canvas?.regions.find((region) => region.slot === slot && region.active)
+    const expired = canvas?.regions.find((region) => region.slot === slot && !region.active)
+    const reserved = canvas?.reservations.find((region) => region.slot === slot)
+    const selectable = !run && !active && !reserved
+    const status = active ? 'CLAIMED' : reserved ? 'RESERVED' : expired ? 'OPEN AGAIN' : 'AVAILABLE'
+    const actor = active?.agent ?? reserved?.agent
+    const expiresAt = active?.expires_at ?? reserved?.expires_at
+    return { slot, label: `${column}${row}`, selectable, status, actor, expiresAt }
+  })
   const cells = Array.from({ length: 32 * 32 }, (_, index) => {
     const x = index % 32
     const y = Math.floor(index / 32)
     const pixel = pixels.get(`${x}:${y}`)
+    const missionTarget = missionTargets.get(`${x}:${y}`)
+    const missionTargetComplete = Boolean(missionTarget &&
+      sameActor(missionTarget.worker ? run?.child?.subject : run?.root?.subject, pixel?.agent))
+    const claim = canvas?.regions.find((region) => region.active && x >= region.x && x < region.x + region.width &&
+      y >= region.y && y < region.y + region.height)
+    const reservation = canvas?.reservations.find((region) => x >= region.x && x < region.x + region.width &&
+      y >= region.y && y < region.y + region.height)
+    const slot = Math.floor(y / 8) * 4 + Math.floor(x / 8)
+    const desiredCell = !root && chosenSlot === slot
+    const desiredX = (slot % 4) * 8
+    const desiredY = Math.floor(slot / 4) * 8
     const rootCell = root && x >= root.x && x < root.x + root.width && y >= root.y && y < root.y + root.height
     const childCell = child && x >= child.x && x < child.x + child.width && y >= child.y && y < child.y + child.height
     const chosen = selected?.x === x && selected.y === y
     return <button type="button" key={`${x}:${y}`}
-      className={`canvas-cell ${rootCell ? 'root-cell' : ''} ${childCell ? 'child-cell' : ''} ${chosen ? 'selected-cell' : ''}`}
-      style={pixel ? { backgroundColor: pixel } : undefined} title={`${x},${y}${pixel ? ` · ${pixel}` : ''}`}
-      aria-label={`Pixel ${x}, ${y}${rootCell ? ' in your region' : ''}`}
-      disabled={!rootCell || run?.state === 'COMPLETE'} onClick={() => onSelect(x, y)} />
+      className={`canvas-cell ${missionTarget ? 'mission-target' : ''} ${missionTarget?.worker ? 'mission-worker' : ''} ${missionTargetComplete ? 'mission-complete' : ''} ${claim ? 'claimed-cell' : ''} ${claim && y === claim.y ? 'claim-top' : ''} ${claim && y === claim.y + claim.height - 1 ? 'claim-bottom' : ''} ${claim && x === claim.x ? 'claim-left' : ''} ${claim && x === claim.x + claim.width - 1 ? 'claim-right' : ''} ${reservation && y === reservation.y ? 'reservation-top' : ''} ${reservation && y === reservation.y + reservation.height - 1 ? 'reservation-bottom' : ''} ${reservation && x === reservation.x ? 'reservation-left' : ''} ${reservation && x === reservation.x + reservation.width - 1 ? 'reservation-right' : ''} ${desiredCell && y === desiredY ? 'desired-top' : ''} ${desiredCell && y === desiredY + 7 ? 'desired-bottom' : ''} ${desiredCell && x === desiredX ? 'desired-left' : ''} ${desiredCell && x === desiredX + 7 ? 'desired-right' : ''} ${rootCell ? 'root-cell' : ''} ${childCell ? 'child-cell' : ''} ${chosen ? 'selected-cell' : ''}`}
+      style={pixel ? { backgroundColor: pixel.color } : undefined}
+      title={`${x},${y}${pixel ? ` · ${pixel.color} · ${pixel.agent ?? 'pseudonymous painter'}` :
+        claim ? ` · claimed by ${claim.agent ?? 'pseudonymous agent'}` :
+          reservation ? ` · quote reserved by ${reservation.agent}` : ''}`}
+      aria-label={`Pixel ${x}, ${y}${rootCell ? ' in your region' : ''}${missionTarget ?
+        missionTarget.worker ? ' worker mission target' : ' principal mission target' : ''}`}
+      disabled={root ? (!rootCell || run?.state === 'COMPLETE' || Boolean(missionTarget?.worker)) :
+        (!canvas && !previewWorld) || Boolean(claim) || Boolean(reservation) || Boolean(run)}
+      onClick={() => root ? onSelect(x, y) : onSlotSelect(slot)} />
   })
   return <section className="tessera-canvas-card" aria-label="Server authoritative canvas">
-    <div className="tessera-panel-head"><div><span className="section-label">SHARED AGENT WORLD</span><h2>Claim it. Paint it. Delegate it.</h2></div>
-      <span className="mono canvas-size">32 × 32</span></div>
-    <div className="canvas-wrap"><div className="canvas-grid">{cells}</div></div>
+    <div className="tessera-panel-head"><div><span className="section-label">SHARED AGENT WORLD</span>
+      <h2>{canvas?.world.name ?? previewWorld?.name ?? 'Claim it. Paint it. Delegate it.'}</h2></div>
+      <div className="world-nav mono"><span className="canvas-size">32 × 32</span>
+        <div className="zoom-controls" aria-label="World zoom">
+          {[1, 2, 4].map((level) => <button type="button" key={level}
+            aria-pressed={zoom === level} onClick={() => setZoom(level)}>{level}×</button>)}</div></div></div>
+    <div className="mission-console" aria-label="Local canvas challenge guide">
+      <div><span className="section-label">LOCAL CANVAS CHALLENGE</span><strong>{mission.name}</strong>
+        <p>{mission.description}</p></div>
+      <div className="mission-choices">{missionTemplates.map((item) => <button type="button" key={item.id}
+        aria-pressed={mission.id === item.id} disabled={Boolean(run)} onClick={() => setMissionId(item.id)}>
+        {item.name}</button>)}</div>
+      <div className="mission-progress mono"><span>{missionOrigin ? `${missionComplete} / ${mission.targets.length} FILLED BY THE CORRECT AGENT` :
+        'SELECT A TERRITORY TO PLACE THE GUIDE'}</span><span>■ PRINCIPAL · ◆ WORKER</span></div>
+    </div>
+    <div className="canvas-wrap" aria-label={`Opal World viewport at ${zoom} times zoom`}>
+      <div className="canvas-grid" style={{ width: `${zoom * 100}%` }}>{cells}</div></div>
     <div className="paint-console" aria-label="Paint controls">
       <div className="pixel-palette">{(canvas?.palette ?? []).map((color) =>
         <button type="button" key={color} className={selectedColor === color ? 'selected-color' : ''}
           style={{ backgroundColor: color }} aria-label={`Select ${color}`} title={color}
           onClick={() => onColor(color)} />)}</div>
       <div className="paint-selection mono"><span>{selected ? `SELECTED · ${selected.x}, ${selected.y}` :
-        run?.root ? 'SELECT A PIXEL INSIDE YOUR OUTLINED REGION' : 'BUY A REGION TO START PAINTING'}</span>
-        <button className="button primary" type="button" onClick={onPaint} disabled={paintDisabled}>
-          PAINT WITH ROOT CAPABILITY</button></div>
+        run?.root ? 'SELECT A PIXEL INSIDE YOUR OUTLINED REGION' : chosenSlot === undefined ?
+          'SELECT AN UNCLAIMED 8 × 8 TERRITORY' : run ? `TERRITORY ${chosenSlot + 1} RESERVED · REVIEW TERMS ABOVE` :
+            `TERRITORY ${chosenSlot + 1} SELECTED`}</span>
+        {root ? <button className="button primary" type="button" onClick={onPaint} disabled={paintDisabled}>
+          PAINT WITH ROOT CAPABILITY</button> : <button className="button primary" type="button"
+          onClick={onPrepare} disabled={preparing || chosenSlot === undefined || Boolean(run)}>
+          {preparing ? 'PREPARING QUOTE…' : 'PREPARE SELECTED TERRITORY'}</button>}</div>
     </div>
-    <div className="canvas-key mono"><span><i className="root-key" />ROOT REGION</span><span><i className="child-key" />CHILD REGION</span><span><i className="pixel-key" />SERVER PIXEL</span></div>
-    {canvas ? <p className="canvas-note mono">POLLING SERVER STATE · {canvas.pixels.length} PIXELS · {canvas.regions.filter((region) => region.active).length} ACTIVE / {canvas.regions.length} HISTORICAL REGIONS</p> :
-      <p className="canvas-note mono">WAITING FOR CANVAS STATE</p>}
+    <div className="canvas-key mono"><span><i className="root-key" />YOUR ROOT</span><span><i className="child-key" />WORKER</span><span><i className="claim-key" />CLAIMED</span><span><i className="reservation-key" />QUOTE RESERVED</span><span><i className="pixel-key" />PIXEL</span></div>
+    {canvas ? <p className="canvas-note mono">SHARED SERVER STATE · REFRESHES EVERY 3S · {canvas.world.active_territories} CLAIMED · {canvas.world.reserved_territories} RESERVED · {canvas.pixels.length} PIXELS</p> :
+      previewWorld ? <p className="canvas-note mono">NEW WORLD PREVIEW · ITS FIRST QUOTE CREATES THIS WORLD</p> :
+        <p className="canvas-note mono">WAITING FOR CANVAS STATE</p>}
+    {(canvas || previewWorld) && <div className="territory-roster" aria-label="World territories">
+      <div className="territory-roster-head"><div><span className="section-label">16 TERRITORIES</span>
+        <h3>Choose open land. Inspect every boundary.</h3></div>
+        <p>Claims expire automatically. Reserved land is waiting for payment; open land can be quoted.</p></div>
+      <div className="territory-grid">{territories.map((territory) =>
+        <button type="button" key={territory.slot}
+          className={`${selectedSlot === territory.slot ? 'selected' : ''} ${territory.status.toLowerCase().replace(' ', '-')}`}
+          disabled={!territory.selectable || Boolean(run)} onClick={() => onSlotSelect(territory.slot)}>
+          <span><strong>{territory.label}</strong><small>{territory.status}</small></span>
+          {territory.actor ? <code>{territory.actor}</code> : <code>8 × 8 · 12 calls</code>}
+          {territory.expiresAt !== undefined && <em><LeaseCountdown exp={territory.expiresAt} /> left</em>}
+        </button>)}</div>
+    </div>}
+    {canvas && <div className="world-pulse" aria-label="Opal World activity">
+      <div className="world-stats"><div><small>WORLD</small><strong>{canvas.world.name}</strong></div>
+        <div><small>PAINTED</small><strong>{canvas.world.painted_pixels} / {canvas.world.total_pixels}</strong></div>
+        <div><small>PAINT ACTIONS</small><strong>{canvas.world.total_placements}</strong></div>
+        <div><small>COMPLETE</small><strong>{canvas.world.completion_percent}%</strong></div>
+        <div><small>PIXEL OWNERS</small><strong>{canvas.world.current_painters}</strong></div></div>
+      <div className="world-lists"><div><h3>TOP CONTRIBUTORS</h3>
+        {canvas.leaderboard.length ? <ol>{canvas.leaderboard.slice(0, 5).map((entry) =>
+          <li key={entry.agent}><code>{entry.agent}</code><b>{entry.placements} paints</b></li>)}</ol> :
+          <p>Paint the first claimed pixel.</p>}</div>
+        <div><h3>RECENT WORLD ACTIVITY</h3>
+          {canvas.recent_activity.length ? <ol>{canvas.recent_activity.slice(0, 5).map((entry) =>
+            <li key={`${entry.x}:${entry.y}:${entry.painted_at}:${entry.counter}`}><span><i style={{ backgroundColor: entry.color }} />
+              <code>{entry.x},{entry.y}</code></span><code>{entry.agent}</code></li>)}</ol> :
+          <p>No committed activity yet.</p>}</div></div>
+    </div>}
     {action && <div className={`tessera-action-result ${action.verdict.toLowerCase()}`} role="status">
       <strong className="mono">{action.status} · {action.code}</strong><span>{action.message}</span>
     </div>}
@@ -162,14 +321,19 @@ function runErrorHeading(error: string) {
 export function TesseraPage() {
   const [run, setRun] = useState<TesseraRun>()
   const [canvas, setCanvas] = useState<TesseraCanvas>()
+  const [canvases, setCanvases] = useState<TesseraCanvasSummary[]>([])
+  const [canvasId, setCanvasId] = useState(initialCanvasId)
+  const [worldInput, setWorldInput] = useState('')
+  const [shareStatus, setShareStatus] = useState('COPY WORLD LINK')
   const [runId, setRunId] = useState('')
   const [token, setToken] = useState('')
   const [busy, setBusy] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const [agentHealth, setAgentHealth] = useState<'CHECKING' | 'WAKING' | 'ONLINE' | 'RETRYING'>('CHECKING')
-  const [canvasHealth, setCanvasHealth] = useState<'CHECKING' | 'ONLINE' | 'UNAVAILABLE'>('CHECKING')
+  const [agentHealth, setAgentHealth] = useState<'CHECKING' | 'WAKING' | 'ONLINE' | 'RETRYING' | 'UPDATE_REQUIRED'>('CHECKING')
+  const [canvasHealth, setCanvasHealth] = useState<'CHECKING' | 'ONLINE' | 'NEW WORLD' | 'UNAVAILABLE'>('CHECKING')
   const [selectedPixel, setSelectedPixel] = useState<{ x: number; y: number }>()
+  const [selectedSlot, setSelectedSlot] = useState<number>()
   const [selectedColor, setSelectedColor] = useState('#7C4DFF')
   const agentProbeFailures = useRef(0)
 
@@ -181,12 +345,13 @@ export function TesseraPage() {
     setToken('')
     setError('')
     setSelectedPixel(undefined)
+    setSelectedSlot(undefined)
   }
 
   const refresh = async (id = runId, credential = token) => {
     if (!id || !credential) return
     const [runResult, canvasResult] = await Promise.allSettled([
-      getTesseraRun(id, credential), getTesseraCanvas(),
+      getTesseraRun(id, credential), getTesseraCanvas(canvasId),
     ])
     if (canvasResult.status === 'fulfilled') {
       setCanvas(canvasResult.value)
@@ -204,34 +369,81 @@ export function TesseraPage() {
     let cancelled = false
     let timer: number | undefined
     const probe = async () => {
-      const [agent, board] = await Promise.allSettled([getTesseraAgentHealth(), getTesseraCanvas()])
+      const [agent, catalogue] = await Promise.allSettled([
+        getTesseraAgentHealth(), getTesseraCanvases(),
+      ])
       if (cancelled) return
       if (agent.status === 'fulfilled') {
         agentProbeFailures.current = 0
         setAgentHealth('ONLINE')
       } else {
-        agentProbeFailures.current += 1
-        setAgentHealth(agentProbeFailures.current >= 3 ? 'RETRYING' : 'WAKING')
+        const message = agent.reason instanceof Error ? agent.reason.message : ''
+        if (message.startsWith('TESSERA_AGENT_REVISION_UNAVAILABLE')) {
+          setAgentHealth('UPDATE_REQUIRED')
+        } else {
+          agentProbeFailures.current += 1
+          setAgentHealth(agentProbeFailures.current >= 3 ? 'RETRYING' : 'WAKING')
+        }
       }
-      if (board.status === 'fulfilled') { setCanvas(board.value); setCanvasHealth('ONLINE') }
-      else setCanvasHealth('UNAVAILABLE')
-      const healthy = agent.status === 'fulfilled' && board.status === 'fulfilled'
+      if (catalogue.status === 'fulfilled') setCanvases(catalogue.value)
+      const healthy = agent.status === 'fulfilled' && catalogue.status === 'fulfilled'
       timer = window.setTimeout(probe, healthy ? 10_000 : 3_000)
     }
     void probe()
+    return () => { cancelled = true; if (timer) window.clearTimeout(timer) }
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    let timer: number | undefined
+    const pollCanvas = async () => {
+      try {
+        const board = await getTesseraCanvas(canvasId)
+        if (cancelled) return
+        setCanvas(board)
+        setCanvasHealth('ONLINE')
+      } catch {
+        try {
+          const catalogue = await getTesseraCanvases()
+          if (cancelled) return
+          setCanvases(catalogue)
+          if (!catalogue.some((item) => item.canvas_id === canvasId)) {
+            setCanvas(undefined)
+            setCanvasHealth('NEW WORLD')
+          } else setCanvasHealth('UNAVAILABLE')
+        } catch {
+          if (!cancelled) setCanvasHealth('UNAVAILABLE')
+        }
+      }
+      if (!cancelled) timer = window.setTimeout(pollCanvas,
+        document.visibilityState === 'hidden' ? 10_000 : 3_000)
+    }
+    void pollCanvas()
+    return () => { cancelled = true; if (timer) window.clearTimeout(timer) }
+  }, [canvasId])
+
+  useEffect(() => {
+    let cancelled = false
     const storedId = window.sessionStorage.getItem(storedRunId)
     const storedToken = window.sessionStorage.getItem(storedRunToken)
     if (storedId && storedToken) {
       setRunId(storedId); setToken(storedToken)
       void getTesseraRun(storedId, storedToken).then((restored) => {
+        if (cancelled) return
         setRun(restored); setAgentHealth('ONLINE')
+        if (restored.quote?.canvas_id && restored.quote.canvas_id !== canvasId) {
+          setCanvasId(restored.quote.canvas_id)
+          window.sessionStorage.setItem(storedCanvasId, restored.quote.canvas_id)
+          updateWorldUrl(restored.quote.canvas_id)
+        }
       }).catch(() => {
+        if (cancelled) return
         window.sessionStorage.removeItem(storedRunId)
         window.sessionStorage.removeItem(storedRunToken)
         setRunId(''); setToken('')
       })
     }
-    return () => { cancelled = true; if (timer) window.clearTimeout(timer) }
+    return () => { cancelled = true }
   }, [])
 
   useEffect(() => {
@@ -257,9 +469,10 @@ export function TesseraPage() {
   }, [runId, token])
 
   const start = async () => {
+    if (selectedSlot === undefined) return
     setLoading(true); setError('')
     try {
-      const created = await createTesseraRun()
+      const created = await createTesseraRun(selectedSlot, canvasId)
       setAgentHealth('ONLINE')
       setRunId(created.run.run_id); setToken(created.run_token); setRun(created.run)
       window.sessionStorage.setItem(storedRunId, created.run.run_id)
@@ -314,26 +527,57 @@ export function TesseraPage() {
   const action = run?.last_action
   const state = run?.state ?? 'READY'
   const agentDot = agentHealth === 'ONLINE' ? 'online' : 'waking'
+  const agentHealthLabel = agentHealth === 'UPDATE_REQUIRED' ? 'UPDATE REQUIRED' : agentHealth
+  const knownWorld = canvases.find((item) => item.canvas_id === canvasId)
+  const previewWorld = canvasHealth === 'NEW WORLD' ? { canvas_id: canvasId,
+    name: canvasId.split('-').map((part) => part[0]!.toUpperCase() + part.slice(1)).join(' ') } : undefined
+  const worldShareUrl = new URL(window.location.href)
+  if (canvasId === 'main') worldShareUrl.searchParams.delete('world')
+  else worldShareUrl.searchParams.set('world', canvasId)
+
+  const chooseWorld = (nextCanvasId: string) => {
+    if (runId || !canvasIdPattern.test(nextCanvasId)) return
+    setCanvasId(nextCanvasId)
+    setCanvas(undefined)
+    setSelectedSlot(undefined)
+    setSelectedPixel(undefined)
+    setError('')
+    setShareStatus('COPY WORLD LINK')
+    window.sessionStorage.setItem(storedCanvasId, nextCanvasId)
+    updateWorldUrl(nextCanvasId)
+  }
+
+  const shareWorld = async () => {
+    try {
+      await navigator.clipboard.writeText(worldShareUrl.href)
+      setShareStatus('WORLD LINK COPIED')
+    } catch {
+      setShareStatus('COPY FAILED · USE ADDRESS BAR')
+    }
+  }
 
   return <main className="tessera-shell">
     <header className="site-header"><a className="brand" href="/">SCOPE<span>402</span></a>
       <nav aria-label="Tessera navigation"><a href="/">HOME</a><a href="/demo">REPOSITORY DEMO</a></nav>
-      <div className="mode"><span className={`status-dot ${agentDot}`} /> TESSERA · {agentHealth}</div>
+      <div className="mode"><span className={`status-dot ${agentDot}`} /> TESSERA · {agentHealthLabel}</div>
     </header>
 
     <section className="tessera-hero"><div><span className="eyebrow">LIVE MULTI-AGENT DEMO · HEDERA TESTNET</span>
       <h1>Buy an area.<br/><em>Share less access.</em></h1></div>
       <div className="tessera-hero-copy"><p>Watch one agent pay for an 8 × 8 canvas area, give a smaller 4 × 4 area to another agent,
-        and prove that neither agent can exceed its limits.</p>
+        and prove that neither agent can exceed its limits. Choose an unclaimed territory on the world map first.</p>
         <div className="tessera-hero-actions"><button className="button primary" type="button" onClick={start}
-          disabled={loading || Boolean(runId) || ['CHECKING', 'WAKING'].includes(agentHealth)}>
+          disabled={loading || Boolean(runId) || selectedSlot === undefined || ['CHECKING', 'WAKING'].includes(agentHealth)}>
           {loading ? 'CONTACTING AGENT…' : runId ? 'RUN IN PROGRESS' :
+            agentHealth === 'UPDATE_REQUIRED' ? 'AGENT UPDATE REQUIRED' :
             agentHealth === 'RETRYING' ? 'RETRY & PREPARE QUOTE' :
             agentHealth === 'WAKING' ? 'WAKING TESSERA AGENT…' :
-            agentHealth === 'CHECKING' ? 'CHECKING TESSERA AGENT…' : 'SEE PRICE & TERMS'}</button>
+            agentHealth === 'CHECKING' ? 'CHECKING TESSERA AGENT…' : selectedSlot === undefined ?
+              'SELECT A TERRITORY BELOW' : `SEE TERMS FOR TERRITORY ${selectedSlot + 1}`}</button>
           {runId && (state === 'COMPLETE' || state === 'FAILED' || error.includes('DEMO_RUN_EXPIRED')) &&
             <button className="button" type="button" onClick={resetRun}>START NEW RUN</button>}
-          <a className="button" href={`${publicTesseraApiUrl}/v1/canvas`} target="_blank" rel="noreferrer">READ CANVAS ↗</a></div>
+          <a className="button" href={`${publicTesseraApiUrl}/v1/canvas${canvasId === 'main' ? '' :
+            `/${encodeURIComponent(canvasId)}`}`} target="_blank" rel="noreferrer">READ THIS WORLD ↗</a></div>
         <p className="tessera-boundary mono">DEMO AGENT PAYS ON TESTNET · PRIVATE KEYS NEVER ENTER THIS PAGE</p></div></section>
 
     <div className="tessera-status-strip"><div><small>HOSTED STATE</small><strong className="mono">{state}</strong></div>
@@ -341,13 +585,41 @@ export function TesseraPage() {
       <div><small>POLICY HASH</small><strong className="mono">{short(run?.quote?.policy_hash ?? run?.root?.policy_hash, 14, 8)}</strong></div>
       <div><small>CANVAS</small><strong className="mono">{canvasHealth}</strong></div></div>
 
-    <PurchaseProof run={run} />
+    <section className="world-picker" aria-label="Choose an Opal World canvas">
+      <div><span className="section-label">PUBLIC WORLDS</span><h2>Choose a world—or name a new one.</h2>
+        <p>The first territory quote creates a new world. Every later payment and paint remains bound to that exact world.</p></div>
+      <div className="world-picker-controls">
+        <label>EXISTING WORLD<select value={knownWorld ? canvasId : ''} disabled={Boolean(runId)}
+          onChange={(event) => chooseWorld(event.target.value)}>
+          {!knownWorld && <option value="">NEW · {canvasId}</option>}
+          {canvases.map((item) => <option key={item.canvas_id} value={item.canvas_id}>
+            {item.name} · {item.painted_pixels} pixels</option>)}</select></label>
+        <div className="world-share-row"><button className="button world-share" type="button"
+          onClick={() => void shareWorld()}>{shareStatus}</button>
+          <a href={worldShareUrl.href} aria-label={`Open shareable link for ${canvas?.world.name ?? previewWorld?.name ?? canvasId}`}>
+            OPEN SHARE LINK ↗</a></div>
+        <form onSubmit={(event) => { event.preventDefault(); chooseWorld(worldInput); setWorldInput('') }}>
+          <label>NEW WORLD SLUG<input value={worldInput} disabled={Boolean(runId)} maxLength={32}
+            pattern="[a-z0-9](?:[a-z0-9-]{1,30}[a-z0-9])?" placeholder="agent-garden"
+            onChange={(event) => setWorldInput(event.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))} /></label>
+          <button className="button" type="submit" disabled={Boolean(runId) ||
+            !canvasIdPattern.test(worldInput)}>PREVIEW NEW WORLD</button>
+        </form>
+      </div>
+    </section>
 
-    <div className="tessera-main-grid"><CapabilityTree run={run} /><CanvasPanel canvas={canvas} run={run} action={action}
+    <div className="tessera-main-grid"><CanvasPanel canvas={canvas} run={run} action={action}
       selected={selectedPixel} onSelect={(x, y) => setSelectedPixel({ x, y })}
+      selectedSlot={selectedSlot} onSlotSelect={setSelectedSlot}
       selectedColor={selectedColor} onColor={setSelectedColor} onPaint={() => void paint()}
+      onPrepare={() => void start()} preparing={loading}
+      previewWorld={previewWorld}
       paintDisabled={busy || !rootReady || !selectedPixel || state === 'COMPLETE' ||
-        (!childReady && (run?.root?.remaining_calls ?? 0) <= 1) || (run?.root?.remaining_calls ?? 0) < 1} /></div>
+        (!childReady && (run?.root?.remaining_calls ?? 0) <= 1) || (run?.root?.remaining_calls ?? 0) < 1} />
+      <aside className="tessera-proof-stack" aria-label="Purchase and capability proof">
+        <PurchaseProof run={run} />
+        <CapabilityTree run={run} />
+      </aside></div>
 
     <section className="tessera-control"><div className="section-label">FOLLOW THE PROOF</div><h2>Pay once.<br/><em>Test every limit.</em></h2>
       <p>Use the buttons from left to right. The server chooses the keys, areas, and requests, so the page cannot fake a successful action.</p>

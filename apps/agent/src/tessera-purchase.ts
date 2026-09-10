@@ -17,7 +17,7 @@ export type PlotPricing = {
 
 export type TesseraPlotResult = {
   status: 'complete'
-  canvas_id: 'main'
+  canvas_id: string
   region: CanvasRegion
   payment: {
     payer: string
@@ -50,7 +50,7 @@ export type PreparedPlot = {
   requestBody: string
   required: PaymentRequired
   terms: PaymentRequirements
-  quote: { canvas_id: 'main'; region: CanvasRegion; pricing: PlotPricing; policy_hash: string }
+  quote: { canvas_id: string; region: CanvasRegion; pricing: PlotPricing; policy_hash: string }
   fingerprint: string
   subject: AgentSubject
 }
@@ -60,10 +60,17 @@ function record(value: unknown, message: string): Record<string, unknown> {
   return value as Record<string, unknown>
 }
 
-function parseRegion(value: unknown): CanvasRegion {
+function parseCanvasId(value: unknown) {
+  if (typeof value !== 'string' || !/^[a-z0-9](?:[a-z0-9-]{1,30}[a-z0-9])?$/.test(value)) {
+    throw new Error('Tessera returned an invalid canvas ID')
+  }
+  return value
+}
+
+function parseRegion(value: unknown, canvasId: string): CanvasRegion {
   const region = record(value, 'Tessera returned no canvas region')
   if (Object.keys(region).length !== 6 || region.kind !== 'canvas-region' ||
-      region.canvasId !== 'main' || !Number.isSafeInteger(region.x) || Number(region.x) < 0 ||
+      region.canvasId !== canvasId || !Number.isSafeInteger(region.x) || Number(region.x) < 0 ||
       !Number.isSafeInteger(region.y) || Number(region.y) < 0 ||
       !Number.isSafeInteger(region.width) || Number(region.width) !== 8 ||
       !Number.isSafeInteger(region.height) || Number(region.height) !== 8) {
@@ -72,7 +79,7 @@ function parseRegion(value: unknown): CanvasRegion {
   return region as CanvasRegion
 }
 
-function parseQuote(value: unknown, amount: string) {
+function parseQuote(value: unknown, amount: string, expectedCanvasId: string) {
   const body = record(value, 'Tessera returned a malformed 402 body')
   const quote = record(body.quote, 'Tessera returned no quote metadata')
   const pricing = record(quote.pricing, 'Tessera returned no quote pricing')
@@ -82,13 +89,13 @@ function parseQuote(value: unknown, amount: string) {
     calls: Number(pricing.calls) as 12,
     total_tinybars: String(pricing.total_tinybars ?? ''),
   }
-  if (quote.canvas_id !== 'main' || !/^[1-9]\d*$/.test(parsed.base_tinybars) ||
+  if (quote.canvas_id !== expectedCanvasId || !/^[1-9]\d*$/.test(parsed.base_tinybars) ||
       !/^[1-9]\d*$/.test(parsed.per_call_tinybars) || parsed.calls !== 12 ||
       parsed.total_tinybars !== amount || BigInt(parsed.total_tinybars) !==
       BigInt(parsed.base_tinybars) + 12n * BigInt(parsed.per_call_tinybars)) {
     throw new Error('Tessera returned malformed or inconsistent quote metadata')
   }
-  return { canvas_id: 'main' as const, region: parseRegion(quote.region), pricing: parsed }
+  return { canvas_id: expectedCanvasId, region: parseRegion(quote.region, expectedCanvasId), pricing: parsed }
 }
 
 function fingerprint(value: Pick<PreparedPlot, 'payer' | 'requestUrl' | 'paymentUrl' |
@@ -119,9 +126,14 @@ export function assertPreparedPlot(policy: AgentPolicy, prepared: PreparedPlot) 
 }
 
 export async function preparePlotPurchase(policy: AgentPolicy, subject: AgentSubject,
-  request: typeof fetch = fetch): Promise<PreparedPlot> {
+  request: typeof fetch = fetch, requestedSlot?: number, requestedCanvasId = 'main'): Promise<PreparedPlot> {
+  if (requestedSlot !== undefined && (!Number.isSafeInteger(requestedSlot) || requestedSlot < 0 || requestedSlot >= 16)) {
+    throw new Error('Tessera slot must be an integer between 0 and 15')
+  }
+  const canvasId = parseCanvasId(requestedCanvasId)
   const url = await discoverPlotResource(policy.auditLabUrl, request)
-  const requestBody = JSON.stringify({ canvas_id: 'main', subject_pubkey: subject.subjectPubkey })
+  const requestBody = JSON.stringify({ canvas_id: canvasId, subject_pubkey: subject.subjectPubkey,
+    ...(requestedSlot === undefined ? {} : { slot: requestedSlot }) })
   const response = await request(url, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: requestBody,
     redirect: 'error', signal: AbortSignal.timeout(20_000),
@@ -134,7 +146,7 @@ export async function preparePlotPurchase(policy: AgentPolicy, subject: AgentSub
   if (!header) throw new Error('Tessera 402 response has no PAYMENT-REQUIRED header')
   const selected = selectPayment(decodePaymentRequiredHeader(header), url.href, policy.merchant,
     policy.payer, policy.maxPaymentTinybars)
-  const quote = parseQuote(await response.json(), selected.terms.amount)
+  const quote = parseQuote(await response.json(), selected.terms.amount, canvasId)
   const info = assertTesseraScope402Policy(selected.required, {
     subjectPubkey: subject.subjectPubkey,
     audience: new URL('/v1/tools', policy.auditLabUrl).href,
@@ -158,7 +170,7 @@ function parsePlotResult(value: unknown, prepared: PreparedPlot, policy: AgentPo
     `https://hashscan.io/testnet/transaction/${transactionMatch[1]}-${transactionMatch[2]}-${transactionMatch[3]}` : ''
   const quoteId = new URL(prepared.paymentUrl).searchParams.get('quote_id')
   const expectedAudience = new URL('/v1/tools', policy.auditLabUrl).href
-  if (result.status !== 'complete' || result.canvas_id !== 'main' ||
+  if (result.status !== 'complete' || result.canvas_id !== prepared.quote.canvas_id ||
       canonicalJson(result.region) !== canonicalJson(prepared.quote.region) || !transactionMatch ||
       payment.payer !== policy.payer || payment.merchant !== policy.merchant ||
       payment.amount_tinybars !== prepared.terms.amount || payment.hashscan_url !== expectedHashscan ||

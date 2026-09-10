@@ -8,7 +8,7 @@ import { getHederaSupport } from './blocky.js'
 import { PlotJobError, fulfillPaidPlot } from './merchants/tessera/jobs.js'
 import { beginPlotPayment, createPlotQuote, loadPlotQuote,
   type PlotPricing } from './merchants/tessera/quotes.js'
-import { TESSERA_CANVAS_ID } from './merchants/tessera/resource.js'
+import { parseCanvasId } from './merchants/tessera/resource.js'
 import { PaymentError } from './payment-error.js'
 import { assertPaymentAmount, merchantConfig, paymentRequired } from './payment-offer.js'
 import { assertQuotedPayment, settledRedemption } from './payments.js'
@@ -18,14 +18,24 @@ import { assertScope402Echo } from './scope-extension.js'
 import { assertP256Subject } from './scope402/subject.js'
 import { paymentTransactionId, reconcileAmbiguousRedemption, settleBegunPayment } from './settlement.js'
 
-export type PlotRequest = { canvas_id: string; subject_pubkey: string }
+export type PlotRequest = { canvas_id: string; subject_pubkey: string; slot?: number }
 
 export function parsePlotRequest(value: unknown): PlotRequest {
-  if (!value || typeof value !== 'object' || Array.isArray(value) ||
-      Object.keys(value).length !== 2) throw new Error('Expected canvas_id and subject_pubkey')
-  const { canvas_id, subject_pubkey } = value as Record<string, unknown>
-  if (canvas_id !== TESSERA_CANVAS_ID) throw new Error(`canvas_id must be ${TESSERA_CANVAS_ID}`)
-  return { canvas_id, subject_pubkey: assertP256Subject(subject_pubkey) }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('Expected canvas_id, subject_pubkey, and optional slot')
+  }
+  const input = value as Record<string, unknown>
+  const keys = Object.keys(input).sort().join(',')
+  if (keys !== 'canvas_id,subject_pubkey' && keys !== 'canvas_id,slot,subject_pubkey') {
+    throw new Error('Expected canvas_id, subject_pubkey, and optional slot')
+  }
+  const { canvas_id, subject_pubkey, slot } = input
+  const parsedCanvasId = parseCanvasId(canvas_id)
+  if (slot !== undefined && (!Number.isSafeInteger(slot) || Number(slot) < 0 || Number(slot) >= 16)) {
+    throw new Error('slot must be an integer between 0 and 15')
+  }
+  return { canvas_id: parsedCanvasId, subject_pubkey: assertP256Subject(subject_pubkey),
+    ...(slot === undefined ? {} : { slot: Number(slot) }) }
 }
 
 function positiveInteger(name: string, fallback: string) {
@@ -83,7 +93,7 @@ plots.post('/', async (c) => {
       const recovered = await reconcileAmbiguousRedemption(transactionId, quoteId) ??
         await settledRedemption(transactionId, quoteId)
       const quote = await loadPlotQuote(quoteId, request.canvas_id, request.subject_pubkey,
-        Boolean(recovered))
+        Boolean(recovered), request.slot)
       assertQuotedPayment(payload, quote)
       assertScope402Echo(payload, quote.extensions)
       if (!recovered) await beginPlotPayment(transactionId, quoteId)
@@ -117,12 +127,13 @@ plots.post('/', async (c) => {
       { ...merchant, amount: assertPaymentAmount(pricing.total_tinybars, 'Tessera') }, support,
       'Tessera 8 by 8 root canvas capability')
     const quote = await createPlotQuote(request.subject_pubkey, endpoint, draft.accepts[0]!,
-      pricing, new URL('/v1/tools', process.env.AUDITLAB_URL ?? c.req.url).href)
+      pricing, new URL('/v1/tools', process.env.AUDITLAB_URL ?? c.req.url).href, request.slot,
+      request.canvas_id)
     const required = { ...draft,
       resource: { ...draft.resource, url: quote.resourceUrl }, extensions: quote.extensions }
     c.header('PAYMENT-REQUIRED', encodePaymentRequiredHeader(required))
     c.header('Cache-Control', 'no-store')
-    return c.json({ ...required, quote: { canvas_id: TESSERA_CANVAS_ID,
+    return c.json({ ...required, quote: { canvas_id: request.canvas_id,
       region: quote.resource, pricing } }, 402)
   } catch (error) {
     if (error instanceof PlotJobError) {
@@ -133,7 +144,8 @@ plots.post('/', async (c) => {
     if (error instanceof PaymentError) {
       const status = ['PAYMENT_INVALID', 'PAYMENT_REQUIREMENTS_MISMATCH', 'QUOTE_INVALID']
         .includes(error.code) ? 400 :
-        ['QUOTE_ALREADY_REDEEMED', 'QUOTE_EXPIRED', 'CANVAS_FULL'].includes(error.code) ? 409 : 502
+        ['QUOTE_ALREADY_REDEEMED', 'QUOTE_EXPIRED', 'CANVAS_FULL', 'REGION_UNAVAILABLE',
+          'WORLD_LIMIT_REACHED'].includes(error.code) ? 409 : 502
       return c.json({ error: error.code, message: error.message }, status)
     }
     return c.json({ error: payload ? 'PLOT_FAILED' : 'FACILITATOR_ERROR',

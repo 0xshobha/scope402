@@ -4,7 +4,7 @@ import { loadLiveState, publicApiUrl, type LiveState } from './api.js'
 import { DemoPage } from './DemoPage.js'
 import { TesseraPage } from './TesseraPage.js'
 
-const states = ['DISCOVER', 'PAY', 'WORK', 'AUTHORITY']
+const states = ['AGREE TERMS', 'PAY', 'RECEIVE PERMISSION', 'ENFORCE EVERY CALL']
 
 const denials = [
   { number: '01', label: 'STOLEN LEASE', status: '403', code: 'SUBJECT_KEY_MISMATCH',
@@ -13,6 +13,13 @@ const denials = [
     copy: 'Each signed invocation advances one atomic counter. The same request cannot spend authority twice.' },
   { number: '03', label: 'EXPIRED AUTHORITY', status: '410', code: 'LEASE_EXPIRED',
     copy: 'The server enforces expiry from persisted state. A valid signature cannot revive a dead lease.' },
+]
+
+const useCases = [
+  { number: '01', title: 'AI APIs', copy: 'Buy a short session for selected models or tools instead of handing an agent a permanent API key.' },
+  { number: '02', title: 'Developer tools', copy: 'Pay for analysis once, then inspect findings or export results only for the purchased repository.' },
+  { number: '03', title: 'Agent teams', copy: 'Let a principal give a worker a smaller task, budget, and lifetime without sharing its wallet or root key.' },
+  { number: '04', title: 'Cloud and data', copy: 'Grant temporary access to one environment, service, or dataset instead of exposing a broad bearer credential.' },
 ]
 
 function StatusRail({ live, checking, onRetry }: {
@@ -89,49 +96,63 @@ export function App() {
         <span className="brand-wordmark">SCOPE<span>402</span></span>
       </a>
       <nav aria-label="Primary navigation">
-        <a href="/demo">LIVE DEMO</a>
+        <a href="/demo">AUDITLAB</a>
         <a href="/tessera">TESSERA</a>
-        <a href="#mechanism">MECHANISM</a>
-        <a href="#denials">DENIALS</a>
+        <a href="#use-cases">USE CASES</a>
+        <a href="#denials">PROOF</a>
       </nav>
       <div className="mode"><span className={`status-dot ${live.state}`} /> PUBLIC API</div>
     </header>
 
     <section className="hero" id="top">
-      <div className="eyebrow">HEDERA TESTNET · X402 V2 · AUDITLAB</div>
-      <motion.h1 initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.35 }}>Payment is not<br/><em>authorization.</em></motion.h1>
-      <p className="lede">One metered Hedera testnet payment buys useful work and limited permission afterward:
-        one tool, three calls, five minutes, usable only by the declared agent key.</p>
-      <div className="hero-actions">
-        <a className="button primary" href="/demo">RUN THE LIVE DEMO</a>
-        <a className="button" href="/tessera">EXPLORE DELEGATED AUTHORITY</a>
-        <a className="button" href="#proof">CHECK API STATUS</a>
-        <a className="button" href={`${publicApiUrl}/.well-known/scope402`}
-          target="_blank" rel="noreferrer">READ LIVE CONTRACT <span aria-hidden="true">↗</span></a>
+      <div className="hero-grid">
+        <div className="hero-copy">
+          <div className="eyebrow">PAY ON HEDERA · CONTROL WHAT HAPPENS NEXT</div>
+          <motion.h1 initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.35 }}>Payment is not{' '}<br/><em>authorization.</em></motion.h1>
+          <p className="lede">Agents can already pay for services. Scope402 makes sure that payment unlocks
+            only the intended work—for the intended agent, within a clear budget and deadline.</p>
+          <div className="hero-actions">
+            <a className="button primary" href="/tessera">SEE TESSERA PROVE IT</a>
+            <a className="button" href="#mechanism">WHY SCOPE402</a>
+            <a className="button" href={`${publicApiUrl}/.well-known/scope402`}
+              target="_blank" rel="noreferrer">OPEN AGENT CONTRACT <span aria-hidden="true">↗</span></a>
+          </div>
+        </div>
+        <aside className="authority-preview" aria-label="What a Scope402 purchase creates">
+          <div className="authority-preview-head"><span>WHAT ONE PAYMENT CREATES</span><b>scope402</b></div>
+          <div className="authority-path" aria-hidden="true">
+            <span>HBAR PAYMENT</span><i>→</i><strong>LIMITED PERMISSION</strong>
+          </div>
+          <p>The service receives proof of payment. For later actions, the agent receives only the permission written below.</p>
+          <dl>
+            <div><dt>WHO</dt><dd>one declared agent key</dd></div>
+            <div><dt>WHERE</dt><dd>one purchased resource</dd></div>
+            <div><dt>CAN DO</dt><dd>approved actions only</dd></div>
+            <div><dt>LIMITS</dt><dd>call budget + expiry</dd></div>
+          </dl>
+          <div className="authority-delegation"><span>PRINCIPAL</span><i>narrows</i><span>WORKER</span></div>
+        </aside>
       </div>
-      <div className="hero-index mono" aria-hidden="true"><span>PAY</span><span>WORK</span><span>AUTHORIZE</span></div>
     </section>
 
-    <div id="proof"><StatusRail live={live} checking={checking} onRetry={retryStatus} /></div>
-
-    <section className="protocol-gap">
+    <section className="protocol-gap" id="mechanism">
       <span className="section-label">THE GAP</span>
-      <div><strong className="mono">x402</strong><p>Proves that the payment settled.</p></div>
-      <div><strong className="mono">Scope402</strong><p>Enforces who may act, what they may do, how many times, and until when.</p></div>
+      <div><strong className="mono">x402</strong><p>Answers: did the payment settle?</p></div>
+      <div><strong className="mono">Scope402</strong><p>Answers: who can do what next—and for how long?</p></div>
     </section>
 
-    <section className="contrast" id="mechanism">
+    <section className="contrast">
       <article className="problem-card">
         <span className="section-label">THE BEARER PROBLEM</span>
-        <h2>Hold the key.<br/>Hold everything.</h2>
+        <h2>Copied keys<br/>copy power.</h2>
         <div className="token mono" aria-label="Example bearer credential">bearer_token_••••••••</div>
-        <p>A bearer credential carries whatever authority the server grants it. Whoever copies it can attempt
-          the same actions. No subject binding. No call budget. No natural end.</p>
+        <p>A bearer token does not prove who is using it. If it is copied, another caller can try every action
+          it allows—often without a built-in call limit or expiry.</p>
       </article>
       <article className="lease-card">
         <span className="section-label">WHAT THE PAYMENT BUYS</span>
-        <h2>One tool.<br/>Hard boundaries.</h2>
+        <h2>Permission<br/>with limits.</h2>
         <dl>
           <div><dt>SUBJECT</dt><dd className="mono">P-256 · DECLARED BEFORE PAY</dd></div>
           <div><dt>TOOL</dt><dd className="mono">finding_details</dd></div>
@@ -143,32 +164,25 @@ export function App() {
 
     <section className="flow-section">
       <div className="section-heading"><span className="section-label">ONE PURCHASE · FOUR DECISIONS</span>
-        <h2>Discover. Pay. Work. Authorize.</h2></div>
+        <h2>Agree. Pay. Work. Enforce.</h2></div>
       <StateRail />
     </section>
 
-    <section className="purchase-section">
-      <div className="purchase-intro">
-        <span className="section-label">WHAT THE PAYMENT BINDS</span>
-        <h2>A priced snapshot.<br/>Not a moving target.</h2>
-        <p>The server-persisted x402 quote binds the repository, exact commit, metered workload,
-          declared subject key, merchant, and amount before the agent signs.</p>
-      </div>
-      <div className="meter-card">
-        <div className="meter-head"><span className="section-label">BOUNDED METER</span><strong>ROOT FILES</strong></div>
-        <div className="formula mono"><span>BASE</span><b>+</b><span>UNIT × ROOT FILES</span><b>≤</b><span>CAP</span></div>
-        <div className="binding-list mono">
-          <span>RESOURCE</span><strong>BOUND GITHUB REPOSITORY</strong>
-          <span>COMMIT</span><strong>immutable SHA</strong>
-          <span>SUBJECT</span><strong>P-256 fingerprint</strong>
-          <span>PAYMENT</span><strong>HBAR tinybars</strong>
-        </div>
+    <section className="use-cases" id="use-cases">
+      <div className="section-heading"><span className="section-label">WHERE IT FITS</span>
+        <h2>Pay once. Work safely within limits.</h2></div>
+      <div className="use-case-grid">
+        {useCases.map((useCase) => <article key={useCase.number}>
+          <span className="mono">{useCase.number}</span>
+          <h3>{useCase.title}</h3>
+          <p>{useCase.copy}</p>
+        </article>)}
       </div>
     </section>
 
     <section className="denial-section" id="denials">
       <div className="section-heading"><span className="section-label">THE PROOF IS IN THE NO</span>
-        <h2>Payment succeeds.<br/>These authority attacks still fail.</h2></div>
+        <h2>The payment succeeds.<br/>Forbidden actions do not.</h2></div>
       <div className="denial-grid">
         {denials.map((denial, index) => <motion.article key={denial.code}
           initial={{ opacity: 0, y: 16 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}
@@ -180,12 +194,28 @@ export function App() {
       </div>
     </section>
 
+    <section className="tessera-invitation">
+      <div>
+        <span className="section-label">THE INTERACTIVE PROOF</span>
+        <h2>Tessera makes permission visible.</h2>
+        <p>A principal agent buys an 8 × 8 region, then gives a different worker only a 4 × 4 region and one
+          call. Inside the worker’s boundary succeeds. Outside it is denied.</p>
+      </div>
+      <div className="tessera-shape" aria-label="A smaller worker region inside a purchased principal region">
+        <span>PRINCIPAL · 8 × 8</span>
+        <div><span>WORKER · 4 × 4 · 1 CALL</span><i aria-hidden="true" /></div>
+      </div>
+      <a className="button primary" href="/tessera">OPEN TESSERA</a>
+    </section>
+
+    <div id="status"><StatusRail live={live} checking={checking} onRetry={retryStatus} /></div>
+
     <section className="custody-section">
       <div className="section-heading"><span className="section-label">WHO HOLDS WHAT</span>
-        <h2>Keys stay out of the browser.</h2></div>
+        <h2>Private keys never enter this page.</h2></div>
       <div className="custody-grid">
         <article><span>01</span><h3>PAYER AGENT</h3><p>Evaluates the quote, applies a spend policy, and signs the HBAR transfer.</p></article>
-        <article><span>02</span><h3>AUDITLAB</h3><p>Settles through Blocky402, scans the bound commit, and signs the ToolLease.</p></article>
+        <article><span>02</span><h3>PROTECTED SERVICE</h3><p>Settles the payment, performs the purchased work, and signs limited permission.</p></article>
         <article><span>03</span><h3>HEDERA</h3><p>Records the real transfer. HashScan proves money moved; it does not grant authority.</p>
           <a className="evidence-link mono" href="https://hashscan.io/testnet/transaction/0.0.7162784-1788595940-223982333"
             target="_blank" rel="noreferrer">VERIFIED TESTNET SETTLEMENT ↗</a></article>
@@ -194,13 +224,13 @@ export function App() {
 
     <section className="honesty">
       <span className="section-label">CURRENT BOUNDARY</span>
-      <h2>Real mechanism. Narrow merchant.</h2>
+      <h2>A real payment.<br/>A narrow promise.</h2>
       <p>Public GitHub repositories, bounded root-file metering, Hedera testnet, one deterministic finding,
         and one lease-protected follow-up tool. No browser keys. No smart contract required for this enforcement
         path. No fake settlement.</p>
     </section>
 
-    <footer><span>Scope402 · AuditLab</span><a href="https://github.com/0xshobha/scope402" target="_blank" rel="noreferrer">SOURCE ↗</a>
+    <footer><span>Scope402 · Limited permission after payment</span><a href="https://github.com/0xshobha/scope402" target="_blank" rel="noreferrer">SOURCE ↗</a>
       <a href={`${publicApiUrl}/health`} target="_blank" rel="noreferrer">API HEALTH ↗</a>
       <a href={`${publicApiUrl}/.well-known/scope402`} target="_blank" rel="noreferrer">DISCOVERY ↗</a></footer>
   </main>

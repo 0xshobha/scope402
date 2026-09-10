@@ -36,7 +36,7 @@ export type TesseraActionResult = {
 }
 
 export type TesseraPaintArgs = {
-  canvas_id: 'main'
+  canvas_id: string
   x: number
   y: number
   color: string
@@ -261,7 +261,8 @@ export function createTesseraCapabilitySession(prepared: PreparedPlot, result: T
       }
 
       if (!childLease) throw new Error('Delegate the worker capability before testing it')
-      const inside = { canvas_id: 'main', x: childLease.resource.x, y: childLease.resource.y,
+      const inside = { canvas_id: childLease.resource.canvasId,
+        x: childLease.resource.x, y: childLease.resource.y,
         color: '#7C4DFF' }
 
       if (action === 'place-outside') {
