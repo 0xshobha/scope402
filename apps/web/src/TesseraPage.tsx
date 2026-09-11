@@ -707,15 +707,15 @@ export function TesseraPage() {
             `/${encodeURIComponent(canvasId)}`}`} target="_blank" rel="noreferrer">READ THIS WORLD ↗</a></div>
         <p className="tessera-boundary mono">DEMO AGENT PAYS ON TESTNET · PRIVATE KEYS NEVER ENTER THIS PAGE</p></div></section>
 
-    <div className="tessera-status-strip"><div><small>HOSTED STATE</small><strong className="mono">{state}</strong></div>
-      <div><small>RUN</small><strong className="mono">{runId ? short(runId) : 'NOT STARTED'}</strong></div>
-      <div><small>POLICY HASH</small><strong className="mono">{short(run?.quote?.policy_hash ?? run?.root?.policy_hash, 14, 8)}</strong></div>
-      <div><small>CANVAS</small><strong className="mono">{canvasHealth}</strong></div></div>
-
     <TesseraWorldMap canvases={canvases} selectedId={canvasId} canvas={canvas}
       draftLocation={canvas?.location ?? knownWorld?.location ?? worldLocation} locked={Boolean(runId)}
       selectedSlot={selectedSlot} onChooseWorld={chooseWorld} onChooseLocation={setWorldLocation}
       onChooseTerritory={(slot) => { setSelectedSlot(slot); setSelectedPixel(undefined) }} />
+
+    <div className="tessera-status-strip"><div><small>HOSTED STATE</small><strong className="mono">{state}</strong></div>
+      <div><small>RUN</small><strong className="mono">{runId ? short(runId) : 'NOT STARTED'}</strong></div>
+      <div><small>POLICY HASH</small><strong className="mono">{short(run?.quote?.policy_hash ?? run?.root?.policy_hash, 14, 8)}</strong></div>
+      <div><small>CANVAS</small><strong className="mono">{canvasHealth}</strong></div></div>
 
     <section className="mission-intent" aria-label="Signal Spark agent mission">
       <div><span className="section-label">MISSION · SIGNAL SPARK</span>

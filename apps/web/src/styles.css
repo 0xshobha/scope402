@@ -303,9 +303,9 @@ footer a:hover { color: var(--violet); }
 .clean-capability p { max-width: 600px; line-height: 1.5; }
 
 .tessera-shell { min-height: 100vh; }
-.tessera-hero { min-height: 330px; padding: 54px 0 38px; display: grid; grid-template-columns: 1.25fr .75fr;
+.tessera-hero { min-height: 270px; padding: 38px 0 28px; display: grid; grid-template-columns: 1.25fr .75fr;
   gap: 64px; align-items: end; }
-.tessera-hero h1 { margin: 25px 0 0; max-width: 800px; font-size: clamp(53px, 7.5vw, 102px); line-height: .88;
+.tessera-hero h1 { margin: 18px 0 0; max-width: 800px; font-size: clamp(50px, 6.5vw, 88px); line-height: .88;
   letter-spacing: -.07em; }
 .tessera-hero h1 em, .tessera-control h2 em { color: var(--violet); font-style: normal; }
 .tessera-hero-copy { max-width: 440px; }
@@ -366,11 +366,11 @@ footer a:hover { color: var(--violet); }
 .world-picker-controls :disabled { cursor: not-allowed; opacity: .55; }
 .world-share-row { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
 .world-picker-controls .world-share { width: fit-content; }
-.geo-world { margin: 22px 0 34px; border: 1.5px solid var(--ink); border-radius: 28px; overflow: hidden;
+.geo-world { margin: 14px 0 20px; border: 1.5px solid var(--ink); border-radius: 28px; overflow: hidden;
   background: #101217; color: #f5f2ea; box-shadow: 0 24px 70px rgba(11, 11, 12, .16); }
 .geo-world-head { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(260px, .8fr);
-  gap: 32px; align-items: end; padding: clamp(24px, 4vw, 52px); }
-.geo-world-head h2 { margin: 8px 0 0; font-size: clamp(38px, 5vw, 72px); line-height: .92; }
+  gap: 32px; align-items: end; padding: clamp(20px, 2.5vw, 34px); }
+.geo-world-head h2 { margin: 8px 0 0; font-size: clamp(34px, 4vw, 58px); line-height: .92; }
 .geo-world-head p { margin: 0; font-size: 17px; line-height: 1.55; color: rgba(245, 242, 234, .76); }
 .geo-map { width: 100%; height: min(72vh, 760px); min-height: 540px; background: #d8ddd6; }
 .geo-location { display: flex; justify-content: space-between; gap: 20px;
@@ -642,7 +642,15 @@ footer a:hover { color: var(--violet); }
   .demo-state-rail li:nth-child(-n+4) { border-bottom: 1.5px solid var(--ink); }
   .demo-control, .quote-panel, .run-result article, .capability-lab { padding: 22px; }
   .hold-copy { flex-direction: column; gap: 5px; }
-  .tessera-hero { min-height: 0; padding: 52px 0 44px; }
+  .tessera-hero { min-height: 0; padding: 28px 0 22px; gap: 20px; }
+  .tessera-hero h1 { margin-top: 14px; font-size: 44px; }
+  .tessera-hero-copy p { font-size: 16px; line-height: 1.42; }
+  .tessera-hero-actions { margin-top: 20px; }
+  .tessera-hero-actions a.button { display: none; }
+  .tessera-boundary { margin-top: 17px !important; }
+  .geo-world-head { gap: 14px; padding: 20px; }
+  .geo-world-head h2 { font-size: 34px; }
+  .geo-world-head p { font-size: 15px; line-height: 1.4; }
   .live-proof-log li { grid-template-columns: 92px 1fr; }
   .purchase-proof-grid { grid-template-columns: 1fr; }
   .purchase-proof-grid > div { border-right: 0; }
