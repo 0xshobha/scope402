@@ -3,13 +3,46 @@ import { DemoRunError, type DemoRunLimits } from './demo-runs.js'
 import { HostedAgentGuard, HostedAgentLimitError } from './hosted-payment-guard.js'
 import { ExactPaymentDeliveryError } from './payment-client.js'
 import { ephemeralSubject, type AgentSubject } from './subject.js'
+import { Scope402HttpError, TesseraRootAuthority, type TesseraCapabilityView, type TesseraDelegation,
+  type TesseraPaintReceipt } from './sdk.js'
+import { planTesseraMissionForRegion, type TesseraMissionPlan } from './tessera-mission.js'
 import type { PublicTesseraCapability, TesseraActionName, TesseraActionResult, TesseraPaintArgs,
   TesseraPaintResult,
   TesseraCapabilitySession } from './tessera-capability.js'
 import type { PreparedPlot, TesseraLocation, TesseraPlotResult } from './tessera-purchase.js'
 
 export type TesseraRunState = 'PAYMENT_REQUIRED' | 'PAYMENT_RECOVERY' | 'SETTLING' | 'ROOT_ACTIVE' |
-  'ACTION_PENDING' | 'CHILD_ACTIVE' | 'COMPLETE' | 'FAILED'
+  'ACTION_PENDING' | 'CHILD_ACTIVE' | 'MISSION_RUNNING' | 'MISSION_COMPLETE' | 'COMPLETE' | 'FAILED'
+
+export type TesseraMissionEvent = {
+  sequence: number
+  at: string
+  stage: 'PLAN' | 'DELEGATE' | 'BOUNDARY' | 'PAINT' | 'COMPLETE'
+  actor: 'principal' | 'worker' | 'system'
+  verdict: 'PLANNED' | 'ALLOWED' | 'DENIED' | 'COMPLETE'
+  code: 'MISSION_PLANNED' | 'CAPABILITY_DELEGATED' | 'OUT_OF_SCOPE' |
+    'PIXEL_PLACED' | 'MISSION_COMPLETE'
+  message: string
+  pixel?: { x: number; y: number; color: string }
+  remaining_calls?: number
+}
+
+export type PublicTesseraMission = {
+  id: 'signal-spark'
+  goal: string
+  state: 'PLANNED' | 'RUNNING' | 'COMPLETE'
+  plan: Pick<TesseraMissionPlan, 'rootRegion' | 'workerRegion' | 'requiredCalls' |
+    'delegatedCalls' | 'boundaryProbe'>
+  events: TesseraMissionEvent[]
+  receipt?: {
+    payment_transaction: string
+    policy_hash: string
+    root_lease_id: string
+    worker_lease_id: string
+    pixels_placed: number
+    denied_actions: [{ actor: 'worker'; code: 'OUT_OF_SCOPE'; pixel: TesseraMissionPlan['boundaryProbe'] }]
+  }
+}
 
 export type PublicTesseraRun = {
   run_id: string
@@ -34,6 +67,7 @@ export type PublicTesseraRun = {
   actions: TesseraActionResult[]
   last_action?: TesseraActionResult
   paint_events: TesseraPaintResult[]
+  mission: PublicTesseraMission
   error?: { code: string; message: string }
 }
 
@@ -51,6 +85,19 @@ type InternalRun = {
   paintAttempts: Map<string, { args: Omit<TesseraPaintArgs, 'canvas_id'>;
     promise: Promise<TesseraPaintResult> }>
   activeAction?: TesseraActionName | 'paint'
+  missionAuthority?: MissionRootAuthority
+  missionWorker?: MissionWorkerAuthority
+  missionAttempt?: Promise<PublicTesseraRun>
+  missionIds: { delegation: string; boundary: string; principal: string[]; worker: string[] }
+}
+
+type MissionWorkerAuthority = {
+  capability(): TesseraCapabilityView
+  paint(args: { x: number; y: number; color: string }, idempotencyKey?: string): Promise<TesseraPaintReceipt>
+}
+
+type MissionRootAuthority = MissionWorkerAuthority & {
+  delegate(input: TesseraDelegation): Promise<MissionWorkerAuthority>
 }
 
 export type TesseraRunDependencies = {
@@ -60,6 +107,7 @@ export type TesseraRunDependencies = {
   payerBalanceTinybars(): Promise<bigint>
   createCapabilitySession(prepared: PreparedPlot, result: TesseraPlotResult,
     worker: AgentSubject): TesseraCapabilitySession
+  createMissionAuthority?(prepared: PreparedPlot, result: TesseraPlotResult): MissionRootAuthority
   now?(): number
   logError?(message: string): void
 }
@@ -116,10 +164,25 @@ export class TesseraRunService {
       },
       actions: [],
       paint_events: [],
+      mission: {
+        id: 'signal-spark', goal: planTesseraMissionForRegion(prepared.quote.region).goal,
+        state: 'PLANNED', plan: (() => {
+          const plan = planTesseraMissionForRegion(prepared.quote.region)
+          return { rootRegion: plan.rootRegion, workerRegion: plan.workerRegion,
+            requiredCalls: plan.requiredCalls, delegatedCalls: plan.delegatedCalls,
+            boundaryProbe: plan.boundaryProbe }
+        })(), events: [{ sequence: 1, at: new Date(now).toISOString(), stage: 'PLAN', actor: 'system',
+          verdict: 'PLANNED', code: 'MISSION_PLANNED',
+          message: 'The agent accepted the selected open territory and divided the artwork between two keys.' }],
+      },
     }
     this.runs.set(runId, { public: publicRun, ip,
       tokenHash: createHash('sha256').update(token).digest(), prepared, worker,
-      actionAttempts: new Map(), paintAttempts: new Map() })
+      actionAttempts: new Map(), paintAttempts: new Map(), missionIds: {
+        delegation: randomUUID(), boundary: randomUUID(),
+        principal: Array.from({ length: 5 }, () => randomUUID()),
+        worker: Array.from({ length: 4 }, () => randomUUID()),
+      } })
     return { run: structuredClone(publicRun), run_token: token }
   }
 
@@ -185,6 +248,8 @@ export class TesseraRunService {
         run.result = approved.result
         run.capability = this.dependencies.createCapabilitySession(run.prepared,
           approved.result, run.worker)
+        run.missionAuthority = this.dependencies.createMissionAuthority?.(run.prepared, approved.result) ??
+          new TesseraRootAuthority(run.prepared, approved.result)
         run.public.payment = approved.result.payment
         run.public.root = run.capability.root()
         run.public.state = 'ROOT_ACTIVE'
@@ -217,6 +282,10 @@ export class TesseraRunService {
     if (!run.result || !run.capability) {
       throw new DemoRunError('DEMO_RUN_INCOMPLETE', 409,
         'Buy a Tessera region before painting it')
+    }
+    if (run.public.mission.state !== 'PLANNED') {
+      throw new DemoRunError('DEMO_MISSION_ACTIVE', 409,
+        'The autonomous mission owns this capability now')
     }
     if (run.public.state === 'COMPLETE') {
       throw new DemoRunError('DEMO_RUN_COMPLETE', 409, 'This Tessera capability has expired')
@@ -272,6 +341,10 @@ export class TesseraRunService {
       throw new DemoRunError('DEMO_RUN_INCOMPLETE', 409,
         'Complete the Tessera payment before testing authority')
     }
+    if (run.public.mission.state !== 'PLANNED') {
+      throw new DemoRunError('DEMO_MISSION_ACTIVE', 409,
+        'The autonomous mission owns this capability now')
+    }
     const index = order.indexOf(action)
     if (index < 0) throw new DemoRunError('DEMO_ACTION_NOT_FOUND', 404, 'Tessera action was not found')
     const completed = run.public.actions.find((item) => item.action === action)
@@ -309,5 +382,99 @@ export class TesseraRunService {
     })
     run.actionAttempts.set(action, attempt)
     return attempt
+  }
+
+  mission(runId: string, token: string) {
+    const run = this.authorized(runId, token)
+    if (!run.result || !run.missionAuthority) {
+      throw new DemoRunError('DEMO_RUN_INCOMPLETE', 409,
+        'Approve the Tessera payment before starting the mission')
+    }
+    if (run.public.actions.length || run.public.paint_events.length) {
+      throw new DemoRunError('DEMO_MISSION_CONFLICT', 409,
+        'Start a new run to let the autonomous mission own the full capability budget')
+    }
+    if (run.public.mission.state === 'COMPLETE') return Promise.resolve(structuredClone(run.public))
+    if (run.missionAttempt) return run.missionAttempt
+    if (run.activeAction) throw new DemoRunError('DEMO_ACTION_BUSY', 409,
+      'Another Tessera action is still running')
+
+    const plan = planTesseraMissionForRegion(run.result.region)
+    const root = run.missionAuthority
+    const append = (event: Omit<TesseraMissionEvent, 'sequence' | 'at'>) => {
+      const existing = run.public.mission.events.find((item) => item.stage === event.stage &&
+        item.actor === event.actor && item.code === event.code &&
+        item.pixel?.x === event.pixel?.x && item.pixel?.y === event.pixel?.y)
+      if (!existing) run.public.mission.events.push({ sequence: run.public.mission.events.length + 1,
+        at: new Date(this.now()).toISOString(), ...event })
+    }
+    run.activeAction = 'paint'
+    run.public.state = 'MISSION_RUNNING'
+    run.public.mission.state = 'RUNNING'
+    run.missionAttempt = (async () => {
+      try {
+        run.missionWorker ??= await root.delegate({ worker: run.worker, resource: plan.workerRegion,
+          maxCalls: plan.delegatedCalls,
+          expiresAt: Math.min(root.capability().exp, Math.floor(this.now() / 1_000) + 180),
+          idempotencyKey: run.missionIds.delegation })
+        const worker = run.missionWorker
+        run.public.root = root.capability()
+        run.public.child = worker.capability()
+        append({ stage: 'DELEGATE', actor: 'principal', verdict: 'ALLOWED',
+          code: 'CAPABILITY_DELEGATED',
+          message: `Principal delegated ${plan.delegatedCalls} calls over a 3 × 2 worker region.`,
+          remaining_calls: worker.capability().remaining_calls })
+
+        try {
+          await worker.paint(plan.boundaryProbe, run.missionIds.boundary)
+          throw new Error('Worker boundary probe unexpectedly succeeded')
+        } catch (error) {
+          if (!(error instanceof Scope402HttpError) || error.code !== 'OUT_OF_SCOPE') throw error
+          append({ stage: 'BOUNDARY', actor: 'worker', verdict: 'DENIED', code: 'OUT_OF_SCOPE',
+            message: 'Worker tried a required pixel outside its delegated rectangle; Scope402 preserved its budget.',
+            pixel: plan.boundaryProbe, remaining_calls: worker.capability().remaining_calls })
+        }
+
+        for (const [index, pixel] of plan.principalPixels.entries()) {
+          const receipt = await root.paint(pixel, run.missionIds.principal[index])
+          run.public.root = root.capability()
+          append({ stage: 'PAINT', actor: 'principal', verdict: 'ALLOWED', code: 'PIXEL_PLACED',
+            message: 'Principal painted its part of the signal.', pixel,
+            remaining_calls: receipt.remaining_calls })
+        }
+        for (const [index, pixel] of plan.workerPixels.entries()) {
+          const receipt = await worker.paint(pixel, run.missionIds.worker[index])
+          run.public.child = worker.capability()
+          append({ stage: 'PAINT', actor: 'worker', verdict: 'ALLOWED', code: 'PIXEL_PLACED',
+            message: 'Worker painted inside its delegated region.', pixel,
+            remaining_calls: receipt.remaining_calls })
+        }
+        run.public.root = root.capability()
+        run.public.child = worker.capability()
+        append({ stage: 'COMPLETE', actor: 'system', verdict: 'COMPLETE', code: 'MISSION_COMPLETE',
+          message: 'Two agents completed the artwork with one payment and one enforced boundary.' })
+        run.public.mission.state = 'COMPLETE'
+        run.public.mission.receipt = {
+          payment_transaction: run.result!.payment.transaction,
+          policy_hash: root.capability().policy_hash,
+          root_lease_id: root.capability().lease_id,
+          worker_lease_id: worker.capability().lease_id,
+          pixels_placed: plan.requiredCalls,
+          denied_actions: [{ actor: 'worker', code: 'OUT_OF_SCOPE', pixel: plan.boundaryProbe }],
+        }
+        run.public.state = 'MISSION_COMPLETE'
+        run.activeAction = undefined
+        this.guard.releaseRun(run.public.run_id)
+        return structuredClone(run.public)
+      } catch (error) {
+        run.activeAction = undefined
+        run.missionAttempt = undefined
+        run.public.state = run.public.child ? 'CHILD_ACTIVE' : 'ROOT_ACTIVE'
+        this.dependencies.logError?.(error instanceof Error ? error.message : 'Unknown Tessera mission failure')
+        throw new DemoRunError('DEMO_MISSION_FAILED', 502,
+          error instanceof Error ? error.message : 'Hosted Tessera mission failed')
+      }
+    })()
+    return run.missionAttempt
   }
 }

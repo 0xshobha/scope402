@@ -7,6 +7,7 @@ import { ephemeralSubject } from '../src/subject.js'
 import type { TesseraActionName, TesseraActionResult } from '../src/tessera-capability.js'
 import { TesseraRunService } from '../src/tessera-runs.js'
 import type { PreparedPlot, TesseraPlotResult } from '../src/tessera-purchase.js'
+import { Scope402HttpError } from '../src/sdk.js'
 import type { PreparedScan, ScanResult } from '../src/purchase.js'
 
 const limits: DemoRunLimits = { runTtlMs: 240_000, perIpRunsPerHour: 3,
@@ -52,6 +53,7 @@ function service(overrides: Partial<{
 }> = {}, guard = new HostedAgentGuard(limits)) {
   const data = fixture()
   let executions = 0
+  let missionExecutions = 0
   const child = { lease_id: 'child-lease', subject: 'worker-public',
     resource: { ...data.prepared.quote.region, x: 2, y: 2, width: 4, height: 4 },
     tool_ids: ['place_pixel'] as ['place_pixel'], max_calls: 1, remaining_calls: 1,
@@ -85,6 +87,35 @@ function service(overrides: Partial<{
           message: action } as TesseraActionResult
       },
     }),
+    createMissionAuthority: () => {
+      let rootRemaining = 12
+      const rootCapability = () => ({ lease_id: 'root-lease', subject: 'p256:fixtureprincipal',
+        resource: data.result.region, tool_ids: ['place_pixel'] as ['place_pixel'], max_calls: 12,
+        remaining_calls: rootRemaining, exp: data.result.lease.exp, root_lease_id: 'root-lease',
+        payment_quote_id: data.result.lease.offer_id, hedera_tx_id: data.result.lease.hedera_tx_id,
+        policy_hash: data.result.lease.policy_hash })
+      return { capability: rootCapability,
+        paint: async (args: { x: number; y: number; color: string }) => {
+          missionExecutions += 1; rootRemaining -= 1
+          return { status: 'PIXEL_PLACED' as const, lease_id: 'root-lease', counter: missionExecutions,
+            remaining_calls: rootRemaining, pixel: { canvas_id: 'main', ...args, updated_at: 1 } }
+        },
+        delegate: async ({ resource, maxCalls }: { resource: typeof data.result.region; maxCalls: number }) => {
+          missionExecutions += 1; rootRemaining -= maxCalls
+          let childRemaining = maxCalls
+          return { capability: () => ({ ...child, resource, max_calls: maxCalls,
+            remaining_calls: childRemaining }),
+          paint: async (args: { x: number; y: number; color: string }) => {
+            missionExecutions += 1
+            if (args.y < resource.y) throw new Scope402HttpError(403, 'OUT_OF_SCOPE', 'outside')
+            childRemaining -= 1
+            return { status: 'PIXEL_PLACED' as const, lease_id: 'child-lease',
+              counter: maxCalls - childRemaining, remaining_calls: childRemaining,
+              pixel: { canvas_id: 'main', ...args, updated_at: 1 } }
+          } }
+        },
+      }
+    },
   }, limits, guard) }
 }
 
@@ -165,6 +196,26 @@ test('Tessera actions enforce order and are idempotent', async () => {
   assert.equal(run.state, 'COMPLETE')
   assert.equal(run.actions.length, 6)
   assert.equal(run.last_action?.code, 'LEASE_EXPIRED')
+})
+
+test('goal-first mission delegates useful work, survives one boundary denial, and completes idempotently', async () => {
+  const setup = service()
+  const created = await setup.instance.create('203.0.113.40')
+  assert.equal(created.run.mission.state, 'PLANNED')
+  assert.equal(created.run.mission.plan.requiredCalls, 9)
+  assert.throws(() => setup.instance.mission(created.run.run_id, created.run_token), /Approve/)
+  await setup.instance.approve(created.run.run_id, created.run_token)
+  const complete = await setup.instance.mission(created.run.run_id, created.run_token)
+  const replayed = await setup.instance.mission(created.run.run_id, created.run_token)
+  assert.deepEqual(replayed, complete)
+  assert.equal(complete.state, 'MISSION_COMPLETE')
+  assert.equal(complete.mission.state, 'COMPLETE')
+  assert.equal(complete.mission.receipt?.pixels_placed, 9)
+  assert.equal(complete.mission.receipt?.denied_actions[0].code, 'OUT_OF_SCOPE')
+  assert.equal(complete.mission.events.filter((event) => event.code === 'PIXEL_PLACED').length, 9)
+  assert.equal(complete.child?.max_calls, 4)
+  assert.equal(complete.child?.remaining_calls, 0)
+  assert.equal(complete.root?.remaining_calls, 3)
 })
 
 test('authenticated player painting is in-scope, idempotent, and publicly recoverable', async () => {

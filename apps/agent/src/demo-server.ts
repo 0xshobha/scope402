@@ -8,6 +8,7 @@ import { ephemeralSubject } from './subject.js'
 import { createTesseraCapabilitySession } from './tessera-capability.js'
 import { approvePlotPurchase, preparePlotPurchase } from './tessera-purchase.js'
 import { TesseraRunService } from './tessera-runs.js'
+import { TesseraRootAuthority } from './sdk.js'
 
 function required(name: string) {
   const value = process.env[name]
@@ -94,6 +95,7 @@ const tessera = new TesseraRunService({
   payerBalanceTinybars: () => payerBalanceTinybars(payerConfig.payer),
   createCapabilitySession: (prepared, result, worker) =>
     createTesseraCapabilitySession(prepared, result, demoControlSecret, fetch, worker),
+  createMissionAuthority: (prepared, result) => new TesseraRootAuthority(prepared, result),
   logError: (message) => console.error(`Tessera hosted-agent failure: ${message}`),
 }, limits, hostedGuard)
 const app = createDemoAgentApp(service, allowedOrigins, trustedProxy, tessera)

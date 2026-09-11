@@ -5,6 +5,8 @@ export type TesseraState =
   | 'ROOT_ACTIVE'
   | 'ACTION_PENDING'
   | 'CHILD_ACTIVE'
+  | 'MISSION_RUNNING'
+  | 'MISSION_COMPLETE'
   | 'COMPLETE'
   | 'FAILED'
 
@@ -66,6 +68,20 @@ export type TesseraRun = {
   child?: TesseraCapability
   actions: TesseraActionResult[]
   paint_events: TesseraPaintResult[]
+  mission: {
+    id: 'signal-spark'
+    goal: string
+    state: 'PLANNED' | 'RUNNING' | 'COMPLETE'
+    plan: { rootRegion: CanvasRegion; workerRegion: CanvasRegion; requiredCalls: number;
+      delegatedCalls: number; boundaryProbe: { x: number; y: number; color: string } }
+    events: Array<{ sequence: number; at: string; stage: string;
+      actor: 'principal' | 'worker' | 'system'; verdict: string; code: string; message: string;
+      pixel?: { x: number; y: number; color: string }; remaining_calls?: number }>
+    receipt?: { payment_transaction: string; policy_hash: string; root_lease_id: string;
+      worker_lease_id: string; pixels_placed: number;
+      denied_actions: Array<{ actor: 'worker'; code: 'OUT_OF_SCOPE';
+        pixel: { x: number; y: number; color: string } }> }
+  }
   last_action?: TesseraActionResult
   error?: { code: string; message: string }
 }
@@ -172,8 +188,8 @@ async function readResponse<T>(response: Response): Promise<T> {
 function assertRun(value: TesseraRun): TesseraRun {
   if (!value || typeof value !== 'object' || typeof value.run_id !== 'string' ||
       typeof value.state !== 'string' || !['PAYMENT_REQUIRED', 'PAYMENT_RECOVERY', 'SETTLING', 'ROOT_ACTIVE',
-        'CHILD_ACTIVE', 'ACTION_PENDING', 'COMPLETE', 'FAILED'].includes(value.state) ||
-      !Array.isArray(value.actions)) {
+        'CHILD_ACTIVE', 'ACTION_PENDING', 'MISSION_RUNNING', 'MISSION_COMPLETE', 'COMPLETE', 'FAILED'].includes(value.state) ||
+      !Array.isArray(value.actions) || !value.mission || !Array.isArray(value.mission.events)) {
     throw new Error('Hosted Tessera agent returned an invalid run')
   }
   return { ...value, paint_events: Array.isArray(value.paint_events) ? value.paint_events : [] }
@@ -206,6 +222,15 @@ export async function approveTesseraRun(runId: string, token: string) {
   return assertRun(await readResponse<TesseraRun>(response))
 }
 
+export async function runTesseraMission(runId: string, token: string) {
+  const response = await fetch(endpoint(agentBase,
+    `/tessera/runs/${encodeURIComponent(runId)}/mission`), {
+    method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: '{}', signal: AbortSignal.timeout(120_000),
+  })
+  return assertRun(await readResponse<TesseraRun>(response))
+}
+
 export async function executeTesseraAction(runId: string, token: string, action: TesseraActionName) {
   const response = await fetch(endpoint(agentBase,
     `/tessera/runs/${encodeURIComponent(runId)}/actions/${action}`), {
@@ -229,10 +254,11 @@ export async function getTesseraAgentHealth() {
   const response = await fetch(endpoint(agentBase, '/health'), { cache: 'no-store',
     signal: AbortSignal.timeout(10_000) })
   const health = await readResponse<{ ok: true; service: string;
-    features?: { tessera?: boolean; tessera_worlds?: boolean };
+    features?: { tessera?: boolean; tessera_worlds?: boolean; tessera_missions?: boolean };
     contracts?: { tessera_runs?: number } }>(response)
-  if (health.features?.tessera_worlds !== true || health.contracts?.tessera_runs !== 3) {
-    throw new Error('TESSERA_AGENT_REVISION_UNAVAILABLE: The hosted agent is online, but it does not support named worlds yet.')
+  if (health.features?.tessera_worlds !== true || health.features?.tessera_missions !== true ||
+      health.contracts?.tessera_runs !== 4) {
+    throw new Error('TESSERA_AGENT_REVISION_UNAVAILABLE: The hosted agent is online, but it does not support autonomous world missions yet.')
   }
   return health
 }

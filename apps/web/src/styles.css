@@ -338,6 +338,18 @@ footer a:hover { color: var(--violet); }
   gap: 18px; background: var(--amber); }
 .settlement-proof.settled { background: var(--cyan); }
 .settlement-proof > span { font-size: 13px; font-weight: 700; }
+.mission-intent { display: grid; grid-template-columns: 1.25fr .75fr; gap: clamp(24px, 5vw, 72px);
+  margin-top: 34px; padding: clamp(26px, 4vw, 46px); border-radius: 24px; background: #11131a;
+  color: #f5f2ea; box-shadow: 0 20px 60px rgba(11, 11, 12, .14); }
+.mission-intent h2 { max-width: 760px; margin: 12px 0; font-size: clamp(34px, 4vw, 58px);
+  line-height: .96; letter-spacing: -.05em; }
+.mission-intent p { max-width: 760px; margin: 0; color: rgba(245, 242, 234, .75);
+  font-size: 17px; line-height: 1.55; }
+.mission-intent ol { display: grid; margin: 0; padding: 0; list-style: none; counter-reset: mission-step; }
+.mission-intent li { display: flex; align-items: center; gap: 10px; padding: 10px 0;
+  border-bottom: 1px solid rgba(245, 242, 234, .2); font-size: 13px; }
+.mission-intent li::before { counter-increment: mission-step; content: '0' counter(mission-step);
+  color: var(--lime); font-weight: 900; }
 .world-picker { display: grid; grid-template-columns: 1fr 1fr; gap: clamp(24px, 5vw, 72px);
   margin-top: 42px; padding: clamp(25px, 4vw, 42px); border: 1.5px solid var(--ink);
   background: var(--lime); box-shadow: 5px 5px 0 var(--ink); }
@@ -504,6 +516,12 @@ footer a:hover { color: var(--violet); }
 .tessera-action-grid .button { width: 100%; text-align: left; }
 .tessera-action-grid .button { cursor: pointer; }.tessera-action-grid .button:disabled { cursor: default; opacity: .45; transform: none; box-shadow: 4px 4px 0 var(--ink); }
 .tessera-control .demo-error { max-width: 680px; }
+.mission-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.mission-actions .mission-run { background: var(--violet); color: #fff; }
+.manual-proof { margin-top: 18px; border-top: 1px solid rgba(11, 11, 12, .25); padding-top: 14px; }
+.manual-proof summary { cursor: pointer; font-family: var(--mono); font-size: 13px; font-weight: 800;
+  letter-spacing: .05em; text-transform: uppercase; }
+.manual-proof > p { margin: 10px 0 14px; color: #5e5b55; font-size: 14px; line-height: 1.45; }
 .live-proof-log { min-width: 0; }
 .live-proof-head { display: flex; align-items: start; justify-content: space-between; gap: 18px; padding: 24px; border-bottom: 1.5px solid var(--ink); }
 .live-proof-head h2 { margin: 12px 0 0; font-size: clamp(27px, 3vw, 40px); line-height: 1; letter-spacing: -.045em; }
@@ -614,10 +632,12 @@ footer a:hover { color: var(--violet); }
   .paint-selection .button { width: 100%; justify-content: center; }
   .mission-choices { grid-template-columns: 1fr; }
   .mission-progress { align-items: flex-start; flex-direction: column; }
+  .mission-actions { grid-template-columns: 1fr; }
   .world-stats { grid-template-columns: 1fr 1fr; }
   .world-stats > div:nth-child(2) { border-right: 0; }
   .world-stats > div:nth-child(-n+2) { border-bottom: 1px solid var(--ink); }
   .world-picker-controls form { grid-template-columns: 1fr; }
+  .mission-intent { grid-template-columns: 1fr; }
   .territory-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .world-lists { grid-template-columns: 1fr; }
   .world-lists > div { border-right: 0; border-bottom: 1.5px solid var(--ink); }

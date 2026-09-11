@@ -46,7 +46,7 @@ test('health identifies the named-world Tessera run contract', async () => {
   const withoutTessera = await createDemoAgentApp(service, new Set()).request('/health')
   assert.deepEqual(await withoutTessera.json(), { ok: true, service: 'scope402-demo-agent',
     mode: 'hedera-testnet-only', features: { auditlab: true, tessera: false,
-      tessera_worlds: false }, contracts: { tessera_runs: 0 } })
+      tessera_worlds: false, tessera_missions: false }, contracts: { tessera_runs: 0 } })
 
   const tessera = new TesseraRunService({
     prepare: async () => { throw new Error('not called') },
@@ -58,7 +58,7 @@ test('health identifies the named-world Tessera run contract', async () => {
   const body = await current.json() as { features: { tessera_worlds: boolean };
     contracts: { tessera_runs: number } }
   assert.equal(body.features.tessera_worlds, true)
-  assert.equal(body.contracts.tessera_runs, 3)
+  assert.equal(body.contracts.tessera_runs, 4)
 })
 
 test('HTTP boundary accepts only repo_url and rejects browser payment fields', async () => {
@@ -223,6 +223,11 @@ test('Tessera HTTP boundary accepts no browser-controlled payment or authority f
     body: JSON.stringify({ lease: 'caller-controlled', x: 31 }),
   })
   assert.equal(injectedAction.status, 400)
+  const injectedMission = await app.request(`/tessera/runs/${run.run.run_id}/mission`, {
+    method: 'POST', headers: { Authorization: `Bearer ${run.run_token}` },
+    body: JSON.stringify({ pixels: [{ x: 0, y: 0 }], max_calls: 99 }),
+  })
+  assert.equal(injectedMission.status, 400)
   const approved = await app.request(`/tessera/runs/${run.run.run_id}/approve`, {
     method: 'POST', headers: { Authorization: `Bearer ${run.run_token}` }, body: '{}',
   })

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   approveTesseraRun, createTesseraRun, executeTesseraAction, getTesseraAgentHealth,
-  getTesseraCanvas, getTesseraCanvases, getTesseraRun, paintTesseraPixel,
+  getTesseraCanvas, getTesseraCanvases, getTesseraRun, paintTesseraPixel, runTesseraMission,
   publicTesseraAgentUrl, publicTesseraApiUrl, subscribeTesseraCanvas,
   type CanvasRegion, type TesseraActionName, type TesseraActionResult,
   type TesseraCanvas, type TesseraCanvasSummary, type TesseraCapability, type TesseraLocation, type TesseraRun,
@@ -27,16 +27,6 @@ function updateWorldUrl(canvasId: string) {
   window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`)
 }
 
-function initialMissionId() {
-  const mission = new URL(window.location.href).searchParams.get('mission')
-  return mission && ['spark', 'crown', 'arrow'].includes(mission) ? mission : 'spark'
-}
-
-function updateMissionUrl(missionId: string) {
-  const url = new URL(window.location.href)
-  url.searchParams.set('mission', missionId)
-  window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`)
-}
 const actionLabels: Record<TesseraActionName, string> = {
   delegate: '2 · GIVE WORKER LESS ACCESS', 'place-inside': '3 · PLACE ALLOWED PIXEL',
   replay: '4 · REPLAY SAME REQUEST', 'place-outside': '5 · TRY OUTSIDE ITS AREA',
@@ -47,26 +37,12 @@ type MissionTemplate = { id: string; name: string; description: string; principa
   targets: Array<{ dx: number; dy: number; worker?: boolean }> }
 
 const missionTemplates: MissionTemplate[] = [
-  { id: 'spark', name: 'SIGNAL SPARK', description: 'Eight amber principal pixels surround one violet worker pixel.',
+  { id: 'spark', name: 'SIGNAL SPARK', description: 'The principal paints five amber pixels while a separate worker paints four violet pixels inside narrower authority.',
     principalColor: '#FFB020',
     targets: [
-      { dx: 2, dy: 0 }, { dx: 2, dy: 1 }, { dx: 0, dy: 2 }, { dx: 1, dy: 2 },
-      { dx: 2, dy: 2, worker: true }, { dx: 3, dy: 2 }, { dx: 4, dy: 2 },
+      { dx: 2, dy: 0 }, { dx: 2, dy: 1, worker: true }, { dx: 0, dy: 2 }, { dx: 1, dy: 2, worker: true },
+      { dx: 2, dy: 2, worker: true }, { dx: 3, dy: 2, worker: true }, { dx: 4, dy: 2 },
       { dx: 2, dy: 3 }, { dx: 2, dy: 4 },
-    ] },
-  { id: 'crown', name: 'AGENT CROWN', description: 'The violet worker anchors the centre of a lime crown.',
-    principalColor: '#C6F432',
-    targets: [
-      { dx: 0, dy: 1 }, { dx: 0, dy: 2 }, { dx: 1, dy: 3 }, { dx: 2, dy: 2, worker: true },
-      { dx: 3, dy: 3 }, { dx: 4, dy: 2 }, { dx: 4, dy: 1 }, { dx: 1, dy: 4 },
-      { dx: 2, dy: 4 }, { dx: 3, dy: 4 },
-    ] },
-  { id: 'arrow', name: 'DELEGATION ARROW', description: 'Cyan principal pixels point toward one violet worker pixel.',
-    principalColor: '#00D3F2',
-    targets: [
-      { dx: 0, dy: 2 }, { dx: 1, dy: 2 }, { dx: 2, dy: 2, worker: true }, { dx: 3, dy: 2 },
-      { dx: 4, dy: 2 }, { dx: 3, dy: 1 }, { dx: 3, dy: 3 }, { dx: 2, dy: 0 },
-      { dx: 2, dy: 4 },
     ] },
 ]
 
@@ -184,6 +160,12 @@ function LiveProofLog({ run }: { run?: TesseraRun }) {
     actor: item.action === 'delegate' ? 'PRINCIPAL A' : item.action === 'expire' ? 'SERVER' : 'WORKER B',
     status: String(item.status), code: item.code, tone: item.verdict === 'ALLOWED' ? 'allowed' : 'denied',
     detail: item.pixel ? `${item.pixel.x},${item.pixel.y} · ${item.message}` : item.message })
+  for (const item of run?.mission.events ?? []) events.push({ key: `mission:${item.sequence}`,
+    time: eventTime(item.at), actor: item.actor.toUpperCase(),
+    status: item.verdict === 'DENIED' ? '403' : item.code === 'MISSION_PLANNED' ? 'PLAN' : '200',
+    code: item.code, tone: item.verdict === 'DENIED' ? 'denied' :
+      item.verdict === 'PLANNED' ? 'pending' : 'allowed',
+    detail: item.pixel ? `${item.pixel.x},${item.pixel.y} · ${item.message}` : item.message })
   return <section className="live-proof-log" aria-label="Persisted Scope402 proof log">
     <div className="live-proof-head"><div><span className="section-label">PERSISTED RUN LOG</span>
       <h2>See every decision.</h2></div><span className="live-indicator mono"><i /> LIVE</span></div>
@@ -215,8 +197,7 @@ function CanvasPanel({ canvas, run, action, selected, onSelect, selectedSlot, on
   liveTransport: 'CONNECTING' | 'LIVE' | 'POLLING'
 }) {
   const [zoom, setZoom] = useState(1)
-  const [missionId, setMissionId] = useState(initialMissionId)
-  useEffect(() => updateMissionUrl(missionId), [missionId])
+  const missionId = 'spark'
   const pixels = useMemo(() => new Map((canvas?.pixels ?? []).map((pixel) => [`${pixel.x}:${pixel.y}`, pixel])), [canvas])
   const root = run?.root?.resource
   const child = run?.child?.resource
@@ -291,12 +272,9 @@ function CanvasPanel({ canvas, run, action, selected, onSelect, selectedSlot, on
         <div className="zoom-controls" aria-label="World zoom">
           {[1, 2, 4].map((level) => <button type="button" key={level}
             aria-pressed={zoom === level} onClick={() => setZoom(level)}>{level}×</button>)}</div></div></div>
-    <div className="mission-console" aria-label="Local canvas challenge guide">
-      <div><span className="section-label">LOCAL CANVAS CHALLENGE</span><strong>{mission.name}</strong>
+    <div className="mission-console" aria-label="Autonomous agent mission">
+      <div><span className="section-label">AUTONOMOUS MISSION</span><strong>{mission.name}</strong>
         <p>{mission.description}</p></div>
-      <div className="mission-choices">{missionTemplates.map((item) => <button type="button" key={item.id}
-        aria-pressed={mission.id === item.id} disabled={Boolean(run)} onClick={() => setMissionId(item.id)}>
-        {item.name}</button>)}</div>
       <div className="mission-progress mono"><span>{missionOrigin ? `${missionComplete} / ${mission.targets.length} CORRECT AGENT + COLOR` :
         'SELECT A TERRITORY TO PLACE THE GUIDE'}</span><span>■ PRINCIPAL {mission.principalColor} · ◆ WORKER #7C4DFF</span></div>
     </div>
@@ -360,30 +338,43 @@ function ActionButton({ action, disabled, onClick }: { action: TesseraActionName
   return <button className="button" type="button" disabled={disabled} onClick={onClick}>{actionLabels[action]}</button>
 }
 
-function ProofControls({ state, busy, rootReady, childReady, completed, error, onApprove, onAction }: {
+function ProofControls({ state, missionState, busy, rootReady, childReady, completed, error,
+  onApprove, onMission, onAction }: {
   state: TesseraRun['state'] | 'READY'
+  missionState: 'PLANNED' | 'RUNNING' | 'COMPLETE'
   busy: boolean
   rootReady: boolean
   childReady: boolean
   completed: Set<TesseraActionName>
   error: string
   onApprove(): void
+  onMission(): void
   onAction(action: TesseraActionName): void
 }) {
   return <section className="tessera-control" aria-label="Scope402 live proof controls">
-    <div className="section-label">LIVE ENFORCEMENT PROOF</div>
-    <h2>Pay once.<br/><em>Test every limit.</em></h2>
-    <p>Follow the buttons in order. The agent creates every key and signed request; this page only asks it to run each scenario.</p>
-    <div className="tessera-action-grid"><button className="button primary" type="button"
+    <div className="section-label">GOAL-FIRST AGENT MISSION</div>
+    <h2>Approve once.<br/><em>Watch agents build.</em></h2>
+    <p>The principal plans the Signal Spark, gives four contained calls to a different worker key,
+      recovers from a denied boundary, and completes the artwork.</p>
+    <div className="tessera-action-grid mission-actions"><button className="button primary" type="button"
       disabled={busy || !['PAYMENT_REQUIRED', 'PAYMENT_RECOVERY'].includes(state)} onClick={onApprove}>
       {state === 'PAYMENT_RECOVERY' ? '1 · RECOVER PAYMENT' : '1 · PAY FOR 8 × 8 AREA'}</button>
-      <ActionButton action="delegate" disabled={busy || !rootReady || childReady} onClick={() => onAction('delegate')} />
-      <ActionButton action="place-inside" disabled={busy || !childReady || completed.has('place-inside')} onClick={() => onAction('place-inside')} />
-      <ActionButton action="replay" disabled={busy || !completed.has('place-inside') || completed.has('replay')} onClick={() => onAction('replay')} />
-      <ActionButton action="place-outside" disabled={busy || !completed.has('replay') || completed.has('place-outside')} onClick={() => onAction('place-outside')} />
-      <ActionButton action="wrong-key" disabled={busy || !completed.has('place-outside') || completed.has('wrong-key')} onClick={() => onAction('wrong-key')} />
-      <ActionButton action="expire" disabled={busy || !completed.has('wrong-key') || completed.has('expire')} onClick={() => onAction('expire')} />
+      <button className="button mission-run" type="button" disabled={busy || !rootReady ||
+        missionState !== 'PLANNED' || completed.size > 0} onClick={onMission}>
+        {missionState === 'RUNNING' ? 'AGENTS ARE BUILDING…' : missionState === 'COMPLETE' ?
+          'MISSION COMPLETE' : '2 · RUN THE AGENT MISSION'}</button>
     </div>
+    <details className="manual-proof"><summary>Manual security proof controls</summary>
+      <p>Use these only instead of the autonomous mission. They expose each capability check separately.</p>
+      <div className="tessera-action-grid">
+        <ActionButton action="delegate" disabled={busy || !rootReady || childReady || missionState !== 'PLANNED'} onClick={() => onAction('delegate')} />
+        <ActionButton action="place-inside" disabled={busy || !childReady || completed.has('place-inside') || missionState !== 'PLANNED'} onClick={() => onAction('place-inside')} />
+        <ActionButton action="replay" disabled={busy || !completed.has('place-inside') || completed.has('replay') || missionState !== 'PLANNED'} onClick={() => onAction('replay')} />
+        <ActionButton action="place-outside" disabled={busy || !completed.has('replay') || completed.has('place-outside') || missionState !== 'PLANNED'} onClick={() => onAction('place-outside')} />
+        <ActionButton action="wrong-key" disabled={busy || !completed.has('place-outside') || completed.has('wrong-key') || missionState !== 'PLANNED'} onClick={() => onAction('wrong-key')} />
+        <ActionButton action="expire" disabled={busy || !completed.has('wrong-key') || completed.has('expire') || missionState !== 'PLANNED'} onClick={() => onAction('expire')} />
+      </div>
+    </details>
     {error && <div className="demo-error" role="alert"><strong>{runErrorHeading(error)}</strong>
       <code>{error}</code></div>}
   </section>
@@ -606,6 +597,20 @@ export function TesseraPage() {
     } finally { setBusy(false) }
   }
 
+  const runMission = async () => {
+    if (!runId || !token || busy) return
+    setBusy(true); setError('')
+    try {
+      setRun((current) => current ? { ...current, state: 'MISSION_RUNNING',
+        mission: { ...current.mission, state: 'RUNNING' } } : current)
+      setRun(await runTesseraMission(runId, token))
+      await refresh(runId, token)
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Tessera mission failed')
+      try { await refresh() } catch { /* Preserve the mission error. */ }
+    } finally { setBusy(false) }
+  }
+
   const paint = async () => {
     if (!runId || !token || !selectedPixel || busy) return
     setBusy(true); setError('')
@@ -674,7 +679,7 @@ export function TesseraPage() {
             agentHealth === 'WAKING' ? 'WAKING TESSERA AGENT…' :
             agentHealth === 'CHECKING' ? 'CHECKING TESSERA AGENT…' : selectedSlot === undefined ?
               'SELECT A TERRITORY BELOW' : `SEE TERMS FOR TERRITORY ${selectedSlot + 1}`}</button>
-          {runId && (state === 'COMPLETE' || state === 'FAILED' || error.includes('DEMO_RUN_EXPIRED')) &&
+          {runId && (state === 'MISSION_COMPLETE' || state === 'COMPLETE' || state === 'FAILED' || error.includes('DEMO_RUN_EXPIRED')) &&
             <button className="button" type="button" onClick={resetRun}>START NEW RUN</button>}
           <a className="button" href={`${publicTesseraApiUrl}/v1/canvas${canvasId === 'main' ? '' :
             `/${encodeURIComponent(canvasId)}`}`} target="_blank" rel="noreferrer">READ THIS WORLD ↗</a></div>
@@ -684,6 +689,15 @@ export function TesseraPage() {
       <div><small>RUN</small><strong className="mono">{runId ? short(runId) : 'NOT STARTED'}</strong></div>
       <div><small>POLICY HASH</small><strong className="mono">{short(run?.quote?.policy_hash ?? run?.root?.policy_hash, 14, 8)}</strong></div>
       <div><small>CANVAS</small><strong className="mono">{canvasHealth}</strong></div></div>
+
+    <section className="mission-intent" aria-label="Signal Spark agent mission">
+      <div><span className="section-label">MISSION · SIGNAL SPARK</span>
+        <h2>Two agents. One paid territory. One finished mark.</h2>
+        <p>The principal will plan and paint five amber pixels. It will give a second P-256 key only the
+          3 × 2 area and four calls needed for the violet pixels. One attempted escape must fail without spending a call.</p></div>
+      <ol className="mono"><li>INSPECT WORLD</li><li>CHECK QUOTE</li><li>APPROVE HBAR</li>
+        <li>DELEGATE LESS</li><li>BUILD + PROVE</li></ol>
+    </section>
 
     <section className="world-picker" aria-label="Choose an Opal World canvas">
       <div><span className="section-label">PUBLIC WORLDS</span><h2>Choose a world—or name a new one.</h2>
@@ -712,17 +726,6 @@ export function TesseraPage() {
       draftLocation={canvas?.location ?? knownWorld?.location ?? worldLocation} locked={Boolean(runId)}
       onChooseWorld={chooseWorld} onChooseLocation={setWorldLocation} />
 
-    <section className="agent-entry" aria-label="Use Tessera from an external agent">
-      <div><span className="section-label">AGENT ENTRY POINT</span>
-        <h2>Your agent can join this world.</h2>
-        <p>Observe live state without a wallet, plan an open territory, inspect the exact quote, then ask for
-          payment approval. The SDK keeps keys, counters, retries, and narrower worker delegation outside the page.</p></div>
-      <div className="agent-entry-code"><code>scope402 watch {canvasId}</code>
-        <span>READ-ONLY · NO HBAR MOVED</span>
-        <div><a className="button" href="/docs/agent-quickstart.md" target="_blank" rel="noreferrer">
-          AGENT QUICKSTART ↗</a><a href="/openapi.json" target="_blank" rel="noreferrer">OPENAPI ↗</a></div></div>
-    </section>
-
     <div className="tessera-main-grid"><CanvasPanel canvas={canvas} run={run} action={action}
       selected={selectedPixel} onSelect={(x, y) => setSelectedPixel({ x, y })}
       selectedSlot={selectedSlot} onSlotSelect={setSelectedSlot}
@@ -730,15 +733,29 @@ export function TesseraPage() {
       onPrepare={() => void start()} preparing={loading}
       previewWorld={previewWorld} liveTransport={liveTransport}
       paintDisabled={busy || !rootReady || !selectedPixel || state === 'COMPLETE' ||
+        run?.mission.state !== 'PLANNED' ||
         (!childReady && (run?.root?.remaining_calls ?? 0) <= 1) || (run?.root?.remaining_calls ?? 0) < 1} />
       <aside className="tessera-proof-stack" aria-label="Purchase and capability proof">
         <PurchaseProof run={run} />
-        <ProofControls state={state} busy={busy} rootReady={rootReady} childReady={childReady}
+        <ProofControls state={state} missionState={run?.mission.state ?? 'PLANNED'} busy={busy}
+          rootReady={rootReady} childReady={childReady}
           completed={completed} error={error} onApprove={() => void approve()}
+          onMission={() => void runMission()}
           onAction={(nextAction) => void act(nextAction)} />
         <LiveProofLog run={run} />
         <CapabilityTree run={run} />
       </aside></div>
+
+    <section className="agent-entry" aria-label="Use Tessera from an external agent">
+      <div><span className="section-label">BUILD ON SCOPE402</span>
+        <h2>Your own agent can join.</h2>
+        <p>Read live worlds without payment, plan available territory, validate the exact quote, then explicitly
+          approve HBAR. The reference SDK handles P-256 subjects, counters, retries, and narrower delegation.</p></div>
+      <div className="agent-entry-code"><code>scope402 watch {canvasId}</code>
+        <span>READ-ONLY · NO HBAR MOVED</span>
+        <div><a className="button" href="/docs/agent-quickstart.md" target="_blank" rel="noreferrer">
+          AGENT QUICKSTART ↗</a><a href="/openapi.json" target="_blank" rel="noreferrer">OPENAPI ↗</a></div></div>
+    </section>
 
     <footer><span>Scope402 · Tessera capability tree</span><a href={`${publicTesseraAgentUrl}/health`} target="_blank" rel="noreferrer">AGENT HEALTH ↗</a><a href="/demo">AUDITLAB DEMO ↗</a></footer>
   </main>

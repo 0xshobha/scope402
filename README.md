@@ -37,12 +37,12 @@ The browser is an inspection and control surface, not a wallet. A visitor can:
 2. explicitly approve one platform-funded Hedera **testnet** payment;
 3. see the settled transaction and verify it on HashScan;
 4. inspect the root capability's subject, resource, tools, call budget, expiry, and payment lineage;
-5. delegate less authority to a different worker key;
-6. place an allowed pixel and run fixed outside-region, wrong-key, replay, and expiry probes; and
+5. approve a goal-first Signal Spark mission that delegates four calls to a different worker key;
+6. watch the principal and worker place nine useful pixels while an organic out-of-scope attempt is denied; and
 7. refresh without paying twice while the hosted run still exists.
 
 The current checkout includes an interactive Tessera world layer: visitors can choose or name a shared
-`32 × 32` world, copy its URL, select one of sixteen `8 × 8` territories, choose a collaborative pixel mission,
+`32 × 32` world, copy its URL, select one of sixteen `8 × 8` territories, run a collaborative agent mission,
 paint with a server-approved palette, and inspect live territory status, contributors, and recent activity.
 The browser receives changed server-authoritative world snapshots over a bounded SSE stream and automatically
 falls back to slower polling if the stream is interrupted. This is not a WebSocket-scale real-time system or an
@@ -186,8 +186,8 @@ charging for every call or exposing a broad bearer credential:
 - deployed Tessera `POST /v1/plots`, server-authoritative canvas, and atomic `place_pixel` execution
 - parent-signed Tessera attenuation to a distinct worker key with strict rectangle containment, immutable
   payment lineage, separate delegation replay counters, and conserved parent/child budgets
-- guarded Tessera browser orchestration with prepare-before-pay approval, refresh recovery, and fixed
-  server-generated delegation and attack actions
+- guarded Tessera browser orchestration with prepare-before-pay approval, refresh recovery, a goal-first
+  principal/worker mission, and optional low-level proof controls
 - a persisted browser proof log that shows the quote, settlement, issued authority, delegation, allowed pixels,
   and every denial from hosted-agent state, with direct HashScan verification for settled runs
 - player-selected Tessera pixels and palette colors signed by the guarded principal agent, with idempotent retries
@@ -204,8 +204,8 @@ paid runs that were exercised on Hedera rather than treating deployment alone as
 - a world catalogue and direct links such as `/tessera/?world=runtime-garden`
 - explicit selection of one available `8 × 8` territory before quote creation
 - transactionally unique reservations with `AVAILABLE`, `RESERVED`, `CLAIMED`, and `OPEN AGAIN` states
-- local principal/worker canvas challenges whose targets remain inside the selected territory and count only
-  pixels painted by the required principal or delegated worker in the challenge's required color
+- a hosted Signal Spark mission whose targets remain inside the purchased territory and count only pixels
+  painted by the required principal or delegated worker in the required color
 - server-authoritative contributor ranking, recent activity, painted-pixel totals, and distinct pixel-owner counts
 - change-only server-sent world updates with a slower polling recovery path
 - world-bound quotes, policies, root capabilities, delegated capabilities, invocations, and pixels
@@ -238,7 +238,9 @@ claimed. The canvas is stored in PostgreSQL; Hedera is the real payment rail.
 | `POST` | `/v1/leases/:leaseId/delegations` | Principal-signed Tessera attenuation |
 | `POST` | `/v1/tools/place_pixel` | Tessera capability-protected atomic pixel mutation |
 
-The hosted agent exposes opaque `/demo/runs` and `/tessera/runs` orchestration routes for the browser. Independent
+The hosted agent exposes opaque `/demo/runs` and `/tessera/runs` orchestration routes for the browser, including
+an idempotent `/tessera/runs/:runId/mission` operation that executes the fixed, inspected Signal Spark plan only
+after explicit payment approval. Independent
 agents do not need that wrapper. The local `@scope402/agent` package exports a TypeScript SDK with the same explicit prepare, approve,
 invoke, and delegate flow, while the OpenAPI and signing contract remain the language-neutral integration surface.
 The SDK is a tested local package in this checkout and is not claimed as published on npm.
@@ -418,7 +420,7 @@ immutable lineage, root expiry, budget conservation, and concurrent invocation/d
 - API and browser app are public; `/demo` can request a quote and ask a dedicated hosted testnet agent to purchase it
 - the hosted demo payer is separate from the merchant and policy-limited; the browser never receives payment or capability keys
 - completed paid retries return the original scan and ToolLease instead of granting fresh authority
-- browser proof actions are fixed requests, while Tessera painting accepts only a pixel, palette color, and opaque
+- the browser mission is a fixed server-inspected plan, while manual Tessera painting accepts only a pixel, palette color, and opaque
   request ID; keys, lease tokens, signatures, counters, payment fields, and demo-control secrets remain outside the browser
 - hosted-agent run and abuse-control state is intentionally single-instance and in memory for this public testnet
   demonstration; a hosted-agent restart clears browser-run recovery and rate-limit state, and multiple agent instances

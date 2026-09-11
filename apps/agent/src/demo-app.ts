@@ -42,7 +42,8 @@ export function createDemoAgentApp(service: DemoRunService, allowedOrigins: Set<
   })
   app.get('/health', (c) => c.json({ ok: true, service: 'scope402-demo-agent',
     mode: 'hedera-testnet-only', features: { auditlab: true, tessera: Boolean(tessera),
-      tessera_worlds: Boolean(tessera) }, contracts: { tessera_runs: tessera ? 3 : 0 } }))
+      tessera_worlds: Boolean(tessera), tessera_missions: Boolean(tessera) },
+    contracts: { tessera_runs: tessera ? 4 : 0 } }))
   app.post('/demo/runs', async (c) => {
     try {
       let value: unknown
@@ -189,6 +190,20 @@ export function createDemoAgentApp(service: DemoRunService, allowedOrigins: Set<
       return c.json(await tessera.paint(c.req.param('runId'),
         bearer(c.req.header('Authorization')), body.request_id,
         { x: Number(body.x), y: Number(body.y), color: body.color }))
+    } catch (error) {
+      return demoError(c, error)
+    }
+  })
+  app.post('/tessera/runs/:runId/mission', async (c) => {
+    try {
+      if (!tessera) throw new DemoRunError('TESSERA_UNAVAILABLE', 404, 'Tessera agent is not configured')
+      const body = await c.req.text()
+      if (body.trim() && body.trim() !== '{}') {
+        throw new DemoRunError('INVALID_REQUEST', 400,
+          'The hosted mission accepts no caller-controlled payment, authority, or pixel fields')
+      }
+      return c.json(await tessera.mission(c.req.param('runId'),
+        bearer(c.req.header('Authorization'))))
     } catch (error) {
       return demoError(c, error)
     }

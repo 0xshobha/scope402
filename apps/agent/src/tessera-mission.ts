@@ -33,6 +33,45 @@ export type TesseraMissionWorld = {
 
 const rootSize = 8
 
+export function planTesseraMissionForRegion(rootRegion: CanvasRegion): TesseraMissionPlan {
+  if (rootRegion.width !== rootSize || rootRegion.height !== rootSize) {
+    throw new Error('Signal Spark requires an 8 x 8 root territory')
+  }
+  const workerRegion: CanvasRegion = {
+    ...rootRegion, x: rootRegion.x + 1, y: rootRegion.y + 1, width: 3, height: 2,
+  }
+  const pixel = (dx: number, dy: number, color: string,
+    actor: TesseraMissionPixel['actor']): TesseraMissionPixel => ({
+    x: rootRegion.x + dx, y: rootRegion.y + dy, color, actor,
+  })
+  const principalPixels = [
+    pixel(2, 0, '#FFB020', 'principal'),
+    pixel(0, 2, '#FFB020', 'principal'),
+    pixel(4, 2, '#FFB020', 'principal'),
+    pixel(2, 3, '#FFB020', 'principal'),
+    pixel(2, 4, '#FFB020', 'principal'),
+  ]
+  const workerPixels = [
+    pixel(2, 1, '#7C4DFF', 'worker'),
+    pixel(1, 2, '#7C4DFF', 'worker'),
+    pixel(2, 2, '#7C4DFF', 'worker'),
+    pixel(3, 2, '#7C4DFF', 'worker'),
+  ]
+  return {
+    mission: 'signal-spark',
+    goal: 'Draw an amber and violet signal spark, delegate useful work, and stay inside the purchased territory.',
+    canvasId: rootRegion.canvasId,
+    slot: (rootRegion.y / rootSize) * 4 + rootRegion.x / rootSize,
+    rootRegion,
+    workerRegion,
+    principalPixels,
+    workerPixels,
+    requiredCalls: principalPixels.length + workerPixels.length,
+    delegatedCalls: workerPixels.length,
+    boundaryProbe: { x: rootRegion.x + 2, y: rootRegion.y, color: '#7C4DFF' },
+  }
+}
+
 function openSlot(world: TesseraMissionWorld) {
   if (world.width < rootSize || world.height < rootSize ||
       world.width % rootSize !== 0 || world.height % rootSize !== 0) {
@@ -62,37 +101,5 @@ export function planTesseraMission(world: TesseraMissionWorld): TesseraMissionPl
     x: (slot % columns) * rootSize, y: Math.floor(slot / columns) * rootSize,
     width: rootSize, height: rootSize,
   }
-  const workerRegion: CanvasRegion = {
-    ...rootRegion, x: rootRegion.x + 1, y: rootRegion.y + 1, width: 3, height: 2,
-  }
-  const pixel = (dx: number, dy: number, color: string,
-    actor: TesseraMissionPixel['actor']): TesseraMissionPixel => ({
-    x: rootRegion.x + dx, y: rootRegion.y + dy, color, actor,
-  })
-  const principalPixels = [
-    pixel(2, 0, '#FFB020', 'principal'),
-    pixel(0, 2, '#FFB020', 'principal'),
-    pixel(4, 2, '#FFB020', 'principal'),
-    pixel(2, 3, '#FFB020', 'principal'),
-    pixel(2, 4, '#FFB020', 'principal'),
-  ]
-  const workerPixels = [
-    pixel(2, 1, '#7C4DFF', 'worker'),
-    pixel(1, 2, '#7C4DFF', 'worker'),
-    pixel(2, 2, '#7C4DFF', 'worker'),
-    pixel(3, 2, '#7C4DFF', 'worker'),
-  ]
-  return {
-    mission: 'signal-spark',
-    goal: 'Draw an amber and violet signal spark, delegate useful work, and stay inside the purchased territory.',
-    canvasId: world.canvas_id,
-    slot,
-    rootRegion,
-    workerRegion,
-    principalPixels,
-    workerPixels,
-    requiredCalls: principalPixels.length + workerPixels.length,
-    delegatedCalls: workerPixels.length,
-    boundaryProbe: { x: rootRegion.x + 2, y: rootRegion.y, color: '#7C4DFF' },
-  }
+  return { ...planTesseraMissionForRegion(rootRegion), slot }
 }
