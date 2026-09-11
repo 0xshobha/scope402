@@ -297,10 +297,11 @@ test('SDK discovers and reads validated shared Tessera worlds without payment', 
     paths.push(path)
     if (path === '/v1/canvases') {
       return Response.json({ canvases: [{ canvas_id: 'opal-world', name: 'Opal World',
+        location: { latitude: 19.076, longitude: 72.8777 },
         width: 32, height: 32, created_at: 1789000000, painted_pixels: 1,
         claimed_territories: 1 }] })
     }
-    return Response.json({ canvas_id: 'opal-world', width: 32, height: 32,
+    return Response.json({ canvas_id: 'opal-world', location: { latitude: 19.076, longitude: 72.8777 }, width: 32, height: 32,
       palette: ['#7C4DFF'], world: { name: 'Opal World', painted_pixels: 1,
         total_placements: 1, total_pixels: 1024, completion_percent: 0.1,
         current_painters: 1, active_territories: 1, reserved_territories: 0 },
@@ -318,7 +319,7 @@ test('SDK discovers and reads validated shared Tessera worlds without payment', 
 })
 
 test('SDK watches validated live world snapshots without payment configuration', async () => {
-  const first = { canvas_id: 'opal-world', width: 32, height: 32,
+  const first = { canvas_id: 'opal-world', location: { latitude: 19.076, longitude: 72.8777 }, width: 32, height: 32,
     palette: ['#7C4DFF'], world: { name: 'Opal World', painted_pixels: 0,
       total_placements: 0, total_pixels: 1024, completion_percent: 0,
       current_painters: 0, active_territories: 0, reserved_territories: 0 },
@@ -387,7 +388,7 @@ test('SDK rejects invalid or mismatched world state before an agent can use it',
 test('SDK rejects malformed nested pixels and territories before agent use', async () => {
   const client = new Scope402Client({ auditLabUrl: new URL('https://merchant.example'),
     payer: '0.0.1001', merchant: '0.0.1002', maxPaymentTinybars: '100000' },
-  (async () => Response.json({ canvas_id: 'opal-world', width: 32, height: 32,
+  (async () => Response.json({ canvas_id: 'opal-world', location: { latitude: 19.076, longitude: 72.8777 }, width: 32, height: 32,
     palette: ['#7C4DFF'], world: { name: 'Opal World', painted_pixels: 1,
       total_placements: 1, total_pixels: 1024, completion_percent: 0.1,
       current_painters: 1, active_territories: 1, reserved_territories: 0 },

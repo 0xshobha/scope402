@@ -133,12 +133,13 @@ test('reserves Tessera plots and issues one payment-bound root capability', asyn
   })
 
   await t.test('the first quote creates a separate named world and binds policy and state to it', async () => {
+    const location = { latitude: 19.07598, longitude: 72.87766 }
     const custom = await createPlotQuote(subjectPubkey, endpoint, requirements, pricing, audience,
-      5, 'agent-garden')
+      5, 'agent-garden', location)
     assert.deepEqual(custom.resource, {
       kind: 'canvas-region', canvasId: 'agent-garden', x: 8, y: 8, width: 8, height: 8,
     })
-    const loaded = await loadPlotQuote(custom.quoteId, 'agent-garden', subjectPubkey, false, 5)
+    const loaded = await loadPlotQuote(custom.quoteId, 'agent-garden', subjectPubkey, false, 5, location)
     assert.equal(loaded.resource.canvasId, 'agent-garden')
     assert.equal((await database().query(
       `SELECT count(*)::integer AS count FROM tessera_slots WHERE canvas_id = 'agent-garden'`)
@@ -147,12 +148,16 @@ test('reserves Tessera plots and issues one payment-bound root capability', asyn
     assert.equal(world.status, 200)
     const canvas = await world.json()
     assert.equal(canvas.canvas_id, 'agent-garden')
+    assert.deepEqual(canvas.location, location)
     assert.equal(canvas.world.name, 'Agent Garden')
     assert.equal(canvas.world.reserved_territories, 1)
     assert.equal((await app.request('/v1/canvas/missing-world')).status, 404)
     const catalogue = await (await app.request('/v1/canvases')).json()
     assert.equal(catalogue.canvases.some((item: { canvas_id: string }) =>
       item.canvas_id === 'agent-garden'), true)
+    await assert.rejects(createPlotQuote(subjectPubkey, endpoint, requirements, pricing, audience,
+      6, 'agent-garden', { latitude: 40.7128, longitude: -74.006 }),
+    (error: unknown) => (error as { code?: string }).code === 'WORLD_LOCATION_MISMATCH')
     await assert.rejects(loadPlotQuote(custom.quoteId, 'main', subjectPubkey, false, 5),
       /bound to another request/)
     await cleanTessera()

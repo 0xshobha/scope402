@@ -19,6 +19,7 @@ const region = { kind: 'canvas-region' as const, canvasId: 'main', x: 0, y: 0,
   width: 8, height: 8 }
 const pricing = { base_tinybars: '50000', per_call_tinybars: '500', calls: 12 as const,
   total_tinybars: '56000' }
+const location = { latitude: 19.076, longitude: 72.8777 }
 const discovery = {
   service: { id: 'auditlab', name: 'AuditLab' }, version: 1, network: 'hedera:testnet',
   payment: { protocol: 'x402', version: 2, facilitator: 'blocky402' },
@@ -46,7 +47,7 @@ test('prepares a real Tessera 402 without moving HBAR', async () => {
     if (url.endsWith('/.well-known/scope402')) return Response.json(discovery)
     assert.equal(url, plotUrl.href)
     return new Response(JSON.stringify({ ...required,
-      quote: { canvas_id: 'main', region, pricing } }), {
+      quote: { canvas_id: 'main', region, location, pricing } }), {
       status: 402, headers: { 'PAYMENT-REQUIRED': encodePaymentRequiredHeader(required) },
     })
   }) as typeof fetch
@@ -71,7 +72,7 @@ test('binds a custom-world preparation to the requested canvas before payment', 
     if (String(input).endsWith('/.well-known/scope402')) return Response.json(discovery)
     plotBody = JSON.parse(String(init?.body)) as Record<string, unknown>
     return new Response(JSON.stringify({ ...required,
-      quote: { canvas_id: 'agent-garden', region: customRegion, pricing } }), {
+      quote: { canvas_id: 'agent-garden', region: customRegion, location, pricing } }), {
       status: 402, headers: { 'PAYMENT-REQUIRED': encodePaymentRequiredHeader(required) },
     })
   }) as typeof fetch
@@ -82,6 +83,26 @@ test('binds a custom-world preparation to the requested canvas before payment', 
   assert.equal(prepared.quote.canvas_id, 'agent-garden')
   assert.equal(prepared.quote.region.canvasId, 'agent-garden')
   assert.doesNotThrow(() => assertPreparedPlot(policy, prepared))
+})
+
+test('binds a new world geographic anchor into the exact prepared request', async () => {
+  const subject = ephemeralSubject()
+  const customRegion = { ...region, canvasId: 'mumbai-hub' }
+  const required = paymentRequired(subject.subjectPubkey, customRegion)
+  const geographic = { latitude: 19.07598, longitude: 72.87766 }
+  let body: unknown
+  const request = (async (input, init) => {
+    if (String(input).endsWith('/.well-known/scope402')) return Response.json(discovery)
+    body = JSON.parse(String(init?.body))
+    return new Response(JSON.stringify({ ...required,
+      quote: { canvas_id: 'mumbai-hub', region: customRegion, location: geographic, pricing } }), {
+      status: 402, headers: { 'PAYMENT-REQUIRED': encodePaymentRequiredHeader(required) },
+    })
+  }) as typeof fetch
+  const prepared = await preparePlotPurchase(policy, subject, request, 4, 'mumbai-hub', geographic)
+  assert.deepEqual(body, { canvas_id: 'mumbai-hub', subject_pubkey: subject.subjectPubkey,
+    slot: 4, location: geographic })
+  assert.deepEqual(prepared.quote.location, geographic)
 })
 
 test('rejects invalid player-selected Tessera slots before making a request', async () => {
@@ -96,7 +117,7 @@ test('rejects a Tessera policy or prepared quote changed before approval', async
   const required = paymentRequired(subject.subjectPubkey)
   const request = (async (input) => String(input).endsWith('/.well-known/scope402') ?
     Response.json(discovery) : new Response(JSON.stringify({ ...required,
-      quote: { canvas_id: 'main', region, pricing } }), {
+      quote: { canvas_id: 'main', region, location, pricing } }), {
       status: 402, headers: { 'PAYMENT-REQUIRED': encodePaymentRequiredHeader(required) },
     })) as typeof fetch
   const prepared = await preparePlotPurchase(policy, subject, request)

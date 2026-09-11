@@ -14,6 +14,7 @@ export type PlotPricing = {
   calls: 12
   total_tinybars: string
 }
+export type TesseraLocation = { latitude: number; longitude: number }
 
 export type TesseraPlotResult = {
   status: 'complete'
@@ -50,7 +51,8 @@ export type PreparedPlot = {
   requestBody: string
   required: PaymentRequired
   terms: PaymentRequirements
-  quote: { canvas_id: string; region: CanvasRegion; pricing: PlotPricing; policy_hash: string }
+  quote: { canvas_id: string; region: CanvasRegion; location: TesseraLocation;
+    pricing: PlotPricing; policy_hash: string }
   fingerprint: string
   subject: AgentSubject
 }
@@ -79,6 +81,18 @@ function parseRegion(value: unknown, canvasId: string): CanvasRegion {
   return region as CanvasRegion
 }
 
+function parseLocation(value: unknown): TesseraLocation {
+  const location = record(value, 'Tessera returned no geographic location')
+  if (Object.keys(location).sort().join(',') !== 'latitude,longitude' ||
+      typeof location.latitude !== 'number' || !Number.isFinite(location.latitude) ||
+      location.latitude < -85 || location.latitude > 85 ||
+      typeof location.longitude !== 'number' || !Number.isFinite(location.longitude) ||
+      location.longitude < -180 || location.longitude > 180) {
+    throw new Error('Tessera returned a malformed geographic location')
+  }
+  return { latitude: location.latitude, longitude: location.longitude }
+}
+
 function parseQuote(value: unknown, amount: string, expectedCanvasId: string) {
   const body = record(value, 'Tessera returned a malformed 402 body')
   const quote = record(body.quote, 'Tessera returned no quote metadata')
@@ -95,7 +109,8 @@ function parseQuote(value: unknown, amount: string, expectedCanvasId: string) {
       BigInt(parsed.base_tinybars) + 12n * BigInt(parsed.per_call_tinybars)) {
     throw new Error('Tessera returned malformed or inconsistent quote metadata')
   }
-  return { canvas_id: expectedCanvasId, region: parseRegion(quote.region, expectedCanvasId), pricing: parsed }
+  return { canvas_id: expectedCanvasId, region: parseRegion(quote.region, expectedCanvasId),
+    location: parseLocation(quote.location), pricing: parsed }
 }
 
 function fingerprint(value: Pick<PreparedPlot, 'payer' | 'requestUrl' | 'paymentUrl' |
@@ -126,14 +141,16 @@ export function assertPreparedPlot(policy: AgentPolicy, prepared: PreparedPlot) 
 }
 
 export async function preparePlotPurchase(policy: AgentPolicy, subject: AgentSubject,
-  request: typeof fetch = fetch, requestedSlot?: number, requestedCanvasId = 'main'): Promise<PreparedPlot> {
+  request: typeof fetch = fetch, requestedSlot?: number, requestedCanvasId = 'main',
+  location?: TesseraLocation): Promise<PreparedPlot> {
   if (requestedSlot !== undefined && (!Number.isSafeInteger(requestedSlot) || requestedSlot < 0 || requestedSlot >= 16)) {
     throw new Error('Tessera slot must be an integer between 0 and 15')
   }
   const canvasId = parseCanvasId(requestedCanvasId)
   const url = await discoverPlotResource(policy.auditLabUrl, request)
   const requestBody = JSON.stringify({ canvas_id: canvasId, subject_pubkey: subject.subjectPubkey,
-    ...(requestedSlot === undefined ? {} : { slot: requestedSlot }) })
+    ...(requestedSlot === undefined ? {} : { slot: requestedSlot }),
+    ...(location === undefined ? {} : { location }) })
   const response = await request(url, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: requestBody,
     redirect: 'error', signal: AbortSignal.timeout(20_000),
@@ -147,6 +164,10 @@ export async function preparePlotPurchase(policy: AgentPolicy, subject: AgentSub
   const selected = selectPayment(decodePaymentRequiredHeader(header), url.href, policy.merchant,
     policy.payer, policy.maxPaymentTinybars)
   const quote = parseQuote(await response.json(), selected.terms.amount, canvasId)
+  if (location && (quote.location.latitude !== Number(location.latitude.toFixed(5)) ||
+      quote.location.longitude !== Number(location.longitude.toFixed(5)))) {
+    throw new Error('Tessera returned a world location different from the requested anchor')
+  }
   const info = assertTesseraScope402Policy(selected.required, {
     subjectPubkey: subject.subjectPubkey,
     audience: new URL('/v1/tools', policy.auditLabUrl).href,

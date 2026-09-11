@@ -16,6 +16,7 @@ export type CanvasRegion = {
   width: number
   height: number
 }
+export type TesseraLocation = { latitude: number; longitude: number }
 
 export type TesseraCapability = {
   lease_id: string
@@ -40,6 +41,7 @@ export type TesseraRun = {
   mode: 'hosted-testnet-agent'
   quote?: {
     canvas_id: string
+    location: TesseraLocation
     region: CanvasRegion
     pricing: {
       base_tinybars: string
@@ -78,6 +80,7 @@ export type TesseraPaintResult = {
 
 export type TesseraCanvas = {
   canvas_id: string
+  location: TesseraLocation
   width: 32
   height: 32
   palette: string[]
@@ -115,6 +118,7 @@ export type TesseraCanvasSummary = {
   created_at: number
   painted_pixels: number
   claimed_territories: number
+  location: TesseraLocation
 }
 
 export type TesseraActionName =
@@ -175,11 +179,11 @@ function assertRun(value: TesseraRun): TesseraRun {
   return { ...value, paint_events: Array.isArray(value.paint_events) ? value.paint_events : [] }
 }
 
-export async function createTesseraRun(slot?: number, canvasId = 'main') {
+export async function createTesseraRun(slot?: number, canvasId = 'main', location?: TesseraLocation) {
   const response = await fetch(endpoint(agentBase, '/tessera/runs'), {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ ...(canvasId === 'main' ? {} : { canvas_id: canvasId }),
-      ...(slot === undefined ? {} : { slot }) }),
+      ...(slot === undefined ? {} : { slot }), ...(location === undefined ? {} : { location }) }),
     signal: AbortSignal.timeout(30_000),
   })
   const prepared = await readResponse<PreparedRun>(response)
@@ -227,7 +231,7 @@ export async function getTesseraAgentHealth() {
   const health = await readResponse<{ ok: true; service: string;
     features?: { tessera?: boolean; tessera_worlds?: boolean };
     contracts?: { tessera_runs?: number } }>(response)
-  if (health.features?.tessera_worlds !== true || health.contracts?.tessera_runs !== 2) {
+  if (health.features?.tessera_worlds !== true || health.contracts?.tessera_runs !== 3) {
     throw new Error('TESSERA_AGENT_REVISION_UNAVAILABLE: The hosted agent is online, but it does not support named worlds yet.')
   }
   return health
@@ -244,7 +248,7 @@ export async function getTesseraCanvas(canvasId = 'main') {
 function normalizeTesseraCanvas(canvas: TesseraCanvas) {
   const painted = Array.isArray(canvas.pixels) ? canvas.pixels.length : 0
   const world = canvas.world
-  return { ...canvas,
+  return { ...canvas, location: canvas.location ?? { latitude: 19.076, longitude: 72.8777 },
     world: { name: world?.name ?? 'Opal World',
       painted_pixels: world?.painted_pixels ?? painted,
       total_placements: world?.total_placements ?? painted,
@@ -286,5 +290,6 @@ export async function getTesseraCanvases() {
     cache: 'no-store', signal: AbortSignal.timeout(15_000),
   })
   const value = await readResponse<{ canvases: TesseraCanvasSummary[] }>(response)
-  return Array.isArray(value.canvases) ? value.canvases : []
+  return Array.isArray(value.canvases) ? value.canvases.map((canvas) => ({ ...canvas,
+    location: canvas.location ?? { latitude: 19.076, longitude: 72.8777 } })) : []
 }

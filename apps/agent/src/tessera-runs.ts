@@ -6,7 +6,7 @@ import { ephemeralSubject, type AgentSubject } from './subject.js'
 import type { PublicTesseraCapability, TesseraActionName, TesseraActionResult, TesseraPaintArgs,
   TesseraPaintResult,
   TesseraCapabilitySession } from './tessera-capability.js'
-import type { PreparedPlot, TesseraPlotResult } from './tessera-purchase.js'
+import type { PreparedPlot, TesseraLocation, TesseraPlotResult } from './tessera-purchase.js'
 
 export type TesseraRunState = 'PAYMENT_REQUIRED' | 'PAYMENT_RECOVERY' | 'SETTLING' | 'ROOT_ACTIVE' |
   'ACTION_PENDING' | 'CHILD_ACTIVE' | 'COMPLETE' | 'FAILED'
@@ -19,6 +19,7 @@ export type PublicTesseraRun = {
   mode: 'hosted-testnet-agent'
   quote: {
     canvas_id: string
+    location: TesseraLocation
     region: PreparedPlot['quote']['region']
     pricing: PreparedPlot['quote']['pricing']
     policy_hash: string
@@ -53,7 +54,8 @@ type InternalRun = {
 }
 
 export type TesseraRunDependencies = {
-  prepare(subject: AgentSubject, requestedSlot?: number, canvasId?: string): Promise<PreparedPlot>
+  prepare(subject: AgentSubject, requestedSlot?: number, canvasId?: string,
+    location?: TesseraLocation): Promise<PreparedPlot>
   approve(prepared: PreparedPlot): Promise<{ result: TesseraPlotResult }>
   payerBalanceTinybars(): Promise<bigint>
   createCapabilitySession(prepared: PreparedPlot, result: TesseraPlotResult,
@@ -76,7 +78,7 @@ export class TesseraRunService {
     return this.dependencies.now?.() ?? Date.now()
   }
 
-  async create(ip: string, requestedSlot?: number, canvasId = 'main') {
+  async create(ip: string, requestedSlot?: number, canvasId = 'main', location?: TesseraLocation) {
     const now = this.now()
     const runId = randomUUID()
     const expiresAt = now + this.limits.runTtlMs
@@ -94,7 +96,7 @@ export class TesseraRunService {
     const worker = ephemeralSubject()
     let prepared: PreparedPlot
     try {
-      prepared = await this.dependencies.prepare(principal, requestedSlot, canvasId)
+      prepared = await this.dependencies.prepare(principal, requestedSlot, canvasId, location)
     } catch (error) {
       this.guard.releaseRun(runId, true)
       throw error
@@ -107,7 +109,8 @@ export class TesseraRunService {
       expires_at: new Date(expiresAt).toISOString(),
       mode: 'hosted-testnet-agent',
       quote: {
-        canvas_id: prepared.quote.canvas_id, region: prepared.quote.region, pricing: prepared.quote.pricing,
+        canvas_id: prepared.quote.canvas_id, region: prepared.quote.region,
+        location: prepared.quote.location, pricing: prepared.quote.pricing,
         policy_hash: prepared.quote.policy_hash, payer: prepared.payer,
         merchant: prepared.terms.payTo, network: 'hedera:testnet', asset: '0.0.0',
       },

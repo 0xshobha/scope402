@@ -65,6 +65,20 @@ export async function initializeDatabase() {
       height integer NOT NULL CHECK (height = 32),
       created_at timestamptz NOT NULL DEFAULT clock_timestamp()
     );
+    ALTER TABLE tessera_canvases ADD COLUMN IF NOT EXISTS latitude double precision;
+    ALTER TABLE tessera_canvases ADD COLUMN IF NOT EXISTS longitude double precision;
+    UPDATE tessera_canvases SET latitude = 19.076, longitude = 72.8777
+      WHERE latitude IS NULL OR longitude IS NULL;
+    ALTER TABLE tessera_canvases ALTER COLUMN latitude SET NOT NULL;
+    ALTER TABLE tessera_canvases ALTER COLUMN longitude SET NOT NULL;
+    ALTER TABLE tessera_canvases ALTER COLUMN latitude SET DEFAULT 19.076;
+    ALTER TABLE tessera_canvases ALTER COLUMN longitude SET DEFAULT 72.8777;
+    ALTER TABLE tessera_canvases DROP CONSTRAINT IF EXISTS tessera_canvases_latitude_check;
+    ALTER TABLE tessera_canvases ADD CONSTRAINT tessera_canvases_latitude_check
+      CHECK (latitude >= -85 AND latitude <= 85);
+    ALTER TABLE tessera_canvases DROP CONSTRAINT IF EXISTS tessera_canvases_longitude_check;
+    ALTER TABLE tessera_canvases ADD CONSTRAINT tessera_canvases_longitude_check
+      CHECK (longitude >= -180 AND longitude <= 180);
     INSERT INTO tessera_canvases (canvas_id, name, width, height)
     VALUES ('main', 'Opal World', 32, 32) ON CONFLICT (canvas_id) DO NOTHING;
     CREATE TABLE IF NOT EXISTS tessera_slots (

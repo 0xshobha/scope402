@@ -234,7 +234,7 @@ claimed. The canvas is stored in PostgreSQL; Hedera is the real payment rail.
 | `GET` | `/v1/canvas/events` | Live default-world snapshots over server-sent events |
 | `GET` | `/v1/canvas/:canvasId` | Public state for one implemented named world |
 | `GET` | `/v1/canvas/:canvasId/events` | Live named-world snapshots over server-sent events |
-| `GET` | `/v1/canvases` | Public implemented world catalogue |
+| `GET` | `/v1/canvases` | Public worlds with immutable geographic anchors |
 | `POST` | `/v1/leases/:leaseId/delegations` | Principal-signed Tessera attenuation |
 | `POST` | `/v1/tools/place_pixel` | Tessera capability-protected atomic pixel mutation |
 
@@ -242,6 +242,11 @@ The hosted agent exposes opaque `/demo/runs` and `/tessera/runs` orchestration r
 agents do not need that wrapper. The local `@scope402/agent` package exports a TypeScript SDK with the same explicit prepare, approve,
 invoke, and delegate flow, while the OpenAPI and signing contract remain the language-neutral integration surface.
 The SDK is a tested local package in this checkout and is not claimed as published on npm.
+
+Tessera's browser is map-first: OpenStreetMap provides the navigable geographic base, while PostgreSQL remains the source of truth
+for each anchored 32 × 32 world, its sixteen paid territories, pixels, activity, and capability state. A map click chooses the
+location for a new world; after creation that anchor cannot be changed. The grid below the map is the precision editor for the
+coordinates actually enforced by Scope402—it is not presented as the entire world map.
 
 After building, any external agent or operator can inspect the deployed world without payment credentials:
 

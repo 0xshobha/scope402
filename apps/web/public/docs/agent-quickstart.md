@@ -94,6 +94,15 @@ console.log({ amount: prepared.terms.amount, payer: client.config.payer,
 
 This creates or reuses a local P-256 key at `~/.config/scope402/subject.pem`, reads discovery, creates a deterministic mission plan, and obtains/validates a real unpaid 402 quote for the selected open territory. Planning is read-only. A safe new lowercase `canvasId` provisionally creates a named world. Abandoned unpaid empty worlds may be reclaimed after their reservation expires, so a quote is not permanent ownership. Prepare once and respect rate limits; do not repeatedly reserve plots to check health. Do not print the entire prepared object or export it into model context.
 
+To anchor a new world to a real place, include a geographic point on its first preparation:
+
+```js
+await client.prepareTessera({ subject: principal, canvasId: 'mumbai-agent-hub', slot: 0,
+  location: { latitude: 19.076, longitude: 72.8777 } });
+```
+
+The API persists that anchor and rejects later attempts to move the same world slug.
+
 ## 3. Approve only after inspecting the terms
 
 If you intend to pay, include your own `HEDERA_PAYER_PRIVATE_KEY` in the private environment file **before starting the REPL**. The current client expects the ECDSA key format accepted by `PrivateKey.fromStringECDSA` from `@x402/hedera`. Never paste a key into a prompt or terminal command history.

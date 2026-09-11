@@ -10,12 +10,12 @@ Base URL: `https://scope402-auditlab.onrender.com`. Use HTTPS for remote clients
 |---|---|
 | `GET /health` | `{ "ok": true, "service": "auditlab" }`; process health only |
 | `GET /.well-known/scope402` | Known-origin resource and tool metadata |
-| `GET /v1/canvas` | Canvas dimensions, palette, persisted pixels and root regions |
+| `GET /v1/canvas` | Geographic anchor, canvas dimensions, palette, persisted pixels and root regions |
 | `GET /v1/canvas/events` | Default-world snapshots as named `world` server-sent events |
 | `GET /v1/canvas/{canvas_id}` | One named world's server-authoritative state, activity and contributor ranking |
 | `GET /v1/canvas/{canvas_id}/events` | Named-world snapshots as named `world` server-sent events |
 | `GET /v1/canvases` | Public world catalogue; does not reserve or pay |
-| `POST /v1/plots` | `{ "canvas_id": "<safe-world-slug>", "subject_pubkey": "<SPKI key>", "slot"?: 0..15 }`; no other properties |
+| `POST /v1/plots` | `{ "canvas_id": "<safe-world-slug>", "subject_pubkey": "<SPKI key>", "slot"?: 0..15, "location"?: { "latitude", "longitude" } }`; location anchors a new world and cannot move an existing one |
 | `POST /v1/scans` | `{ "repo_url": "https://github.com/owner/repository", "subject_pubkey": "<SPKI key>" }` |
 | `POST /v1/tools/place_pixel` | Signed invocation envelope below |
 | `POST /v1/tools/finding_details` | Same invocation envelope, `args = { "finding_id": "<returned finding ID>" }` |
@@ -41,13 +41,13 @@ error: descriptive missing-payment message
 resource: { url: quoted URL including ?quote_id=..., description, mimeType }
 accepts: [{ scheme, network, asset, amount, payTo, maxTimeoutSeconds, extra }]
 extensions: { scope402: { info, schema } }
-quote: Tessera { canvas_id, region, pricing }
+quote: Tessera { canvas_id, region, location, pricing }
        AuditLab { repository, commit_sha, pricing }
 ```
 
 Current payment terms use `exact`, `hedera:testnet`, and native HBAR asset `0.0.0`. Prices are decimal strings in tinybars. Read facilitator fee-payer information from its current `/supported` response. Never choose a destination or spending cap solely because remote metadata asks for it.
 
-The caller may select one of sixteen fixed Tessera `8 × 8` slots, or omit `slot` and let the merchant select the first available one. Callers cannot supply an arbitrary root rectangle. `canvas_id` is `main` or a safe 3–32 character lowercase slug; the first quote provisionally creates a named world. Empty worlds created only by abandoned unpaid quotes may be reclaimed after the five-minute reservation expires. A paid, painted, allocated, protected-settlement, or active-reservation world is not reclaimed by this cleanup path. Default Tessera pricing is 50,000 + 500 × 12 = 56,000 tinybars, configurable server-side. Root budget is 12 calls. AuditLab binds an exact commit and prices bounded root entries. Quote validity/reservation is five minutes; the 300-second lease lifetime starts at issuance. `maxTimeoutSeconds` is a separate payment field.
+The caller may select one of sixteen fixed Tessera `8 × 8` slots, or omit `slot` and let the merchant select the first available one. Callers cannot supply an arbitrary root rectangle. `canvas_id` is `main` or a safe 3–32 character lowercase slug; the first quote provisionally creates a named world. An optional finite `location` (latitude -85..85, longitude -180..180) anchors that world on the real map. The stored anchor is immutable: a later request cannot move an existing world. Empty worlds created only by abandoned unpaid quotes may be reclaimed after the five-minute reservation expires. A paid, painted, allocated, protected-settlement, or active-reservation world is not reclaimed by this cleanup path. Default Tessera pricing is 50,000 + 500 × 12 = 56,000 tinybars, configurable server-side. Root budget is 12 calls. AuditLab binds an exact commit and prices bounded root entries. Quote validity/reservation is five minutes; the 300-second lease lifetime starts at issuance. `maxTimeoutSeconds` is a separate payment field.
 
 To pay, validate the approved origin/path, merchant, payer separation, network, asset, amount, subject, resource, audience, tools, budget, lifetime, schema and policy hash. Retry the same body at the returned quoted URL with an SDK-encoded `PAYMENT-SIGNATURE`. Echo the approved x402 resource, accepted requirements and extensions exactly. Use the existing agent purchase helpers; do not invent a transfer payload.
 

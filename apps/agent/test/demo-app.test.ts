@@ -58,7 +58,7 @@ test('health identifies the named-world Tessera run contract', async () => {
   const body = await current.json() as { features: { tessera_worlds: boolean };
     contracts: { tessera_runs: number } }
   assert.equal(body.features.tessera_worlds, true)
-  assert.equal(body.contracts.tessera_runs, 2)
+  assert.equal(body.contracts.tessera_runs, 3)
 })
 
 test('HTTP boundary accepts only repo_url and rejects browser payment fields', async () => {
@@ -160,6 +160,7 @@ test('Tessera HTTP boundary accepts no browser-controlled payment or authority f
   const prepared = { ...data.prepared, requestUrl: 'https://auditlab.example/v1/plots',
     paymentUrl: 'https://auditlab.example/v1/plots?quote_id=123e4567-e89b-42d3-a456-426614174002',
     subject: rootSubject, quote: { canvas_id: 'main' as const, region,
+      location: { latitude: 19.076, longitude: 72.8777 },
       pricing: { base_tinybars: '50000', per_call_tinybars: '500', calls: 12 as const,
         total_tinybars: '50500' }, policy_hash: `sha256:${'a'.repeat(64)}` } } as unknown as PreparedPlot
   const result = { status: 'complete' as const, canvas_id: 'main' as const, region,
@@ -176,10 +177,12 @@ test('Tessera HTTP boundary accepts no browser-controlled payment or authority f
   }, limits, guard)
   let selectedSlot: number | undefined
   let selectedCanvas: string | undefined
+  let selectedLocation: { latitude: number; longitude: number } | undefined
   const tessera = new TesseraRunService({
-    prepare: async (subject, requestedSlot, canvasId) => {
+    prepare: async (subject, requestedSlot, canvasId, location) => {
       selectedSlot = requestedSlot
       selectedCanvas = canvasId
+      selectedLocation = location
       return { ...prepared, subject }
     }, approve: async () => ({ result }),
     payerBalanceTinybars: async () => 10_000_000n,
@@ -201,10 +204,12 @@ test('Tessera HTTP boundary accepts no browser-controlled payment or authority f
   assert.equal(invalidCanvas.status, 400)
   const created = await app.request('/tessera/runs', { method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ canvas_id: 'agent-garden', slot: 0 }) })
+    body: JSON.stringify({ canvas_id: 'agent-garden', slot: 0,
+      location: { latitude: 19.076, longitude: 72.8777 } }) })
   assert.equal(created.status, 202)
   assert.equal(selectedSlot, 0)
   assert.equal(selectedCanvas, 'agent-garden')
+  assert.deepEqual(selectedLocation, { latitude: 19.076, longitude: 72.8777 })
   const run = await created.json() as { run: { run_id: string }; run_token: string }
   const noToken = await app.request(`/tessera/runs/${run.run.run_id}`)
   assert.equal(noToken.status, 404)

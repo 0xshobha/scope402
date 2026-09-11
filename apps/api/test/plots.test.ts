@@ -13,6 +13,10 @@ test('accepts safe canvas slugs, optional territory, and a P-256 subject', () =>
     { canvas_id: 'main', subject_pubkey: subject, slot: 15 })
   assert.deepEqual(parsePlotRequest({ canvas_id: 'agent-garden', subject_pubkey: subject, slot: 0 }),
     { canvas_id: 'agent-garden', subject_pubkey: subject, slot: 0 })
+  assert.deepEqual(parsePlotRequest({ canvas_id: 'mumbai-hub', subject_pubkey: subject, slot: 4,
+    location: { latitude: 19.075983, longitude: 72.877656 } }),
+  { canvas_id: 'mumbai-hub', subject_pubkey: subject, slot: 4,
+    location: { latitude: 19.07598, longitude: 72.87766 } })
   for (const request of [
     {}, { canvas_id: 'UPPERCASE', subject_pubkey: subject },
     { canvas_id: '../escape', subject_pubkey: subject },
@@ -21,6 +25,10 @@ test('accepts safe canvas slugs, optional territory, and a P-256 subject', () =>
     { canvas_id: 'main', subject_pubkey: subject, slot: -1 },
     { canvas_id: 'main', subject_pubkey: subject, slot: 16 },
     { canvas_id: 'main', subject_pubkey: subject, slot: 1.5 },
+    { canvas_id: 'main', subject_pubkey: subject, location: { latitude: NaN, longitude: 0 } },
+    { canvas_id: 'main', subject_pubkey: subject, location: { latitude: 86, longitude: 0 } },
+    { canvas_id: 'main', subject_pubkey: subject, location: { latitude: 0, longitude: 181 } },
+    { canvas_id: 'main', subject_pubkey: subject, location: { latitude: 0, longitude: 0, zoom: 12 } },
   ]) assert.throws(() => parsePlotRequest(request))
 })
 

@@ -8,7 +8,7 @@ import { assertQuoteId, beginRedemptionInTransaction } from '../../payments.js'
 import { parseTesseraScope402Extension, tesseraScope402Extension } from '../../scope-extension.js'
 import { hasExactKeys } from '../../scope402/policy.js'
 import { parseCanvasRegion, rootCanvasRegion, TESSERA_CANVAS_ID } from './resource.js'
-import { ensureCanvas } from './canvases.js'
+import { ensureCanvas, type TesseraLocation } from './canvases.js'
 
 export const TESSERA_MERCHANT_ID = 'tessera'
 
@@ -71,12 +71,12 @@ async function reclaimExpiredSlots(client: TransactionClient, canvasId: string) 
 
 export async function createPlotQuote(subjectPubkey: string, endpoint: string,
   requirements: PaymentRequirements, pricing: PlotPricing, audience: string, requestedSlot?: number,
-  canvasId = TESSERA_CANVAS_ID) {
+  canvasId = TESSERA_CANVAS_ID, location?: TesseraLocation) {
   if (pricing.total_tinybars !== requirements.amount) {
     throw new PaymentError('PAYMENT_STATE_ERROR', 'Tessera pricing and payment amount disagree')
   }
   return transaction(async (client) => {
-    await ensureCanvas(client, canvasId)
+    await ensureCanvas(client, canvasId, location)
     await reclaimExpiredSlots(client, canvasId)
     const available = await client.query(
       `SELECT slot FROM tessera_slots
@@ -95,7 +95,8 @@ export async function createPlotQuote(subjectPubkey: string, endpoint: string,
     const quoteId = randomUUID()
     const resourceUrl = new URL(endpoint)
     resourceUrl.searchParams.set('quote_id', quoteId)
-    const binding = { canvas_id: canvasId, ...(requestedSlot === undefined ? {} : { slot }) }
+    const binding = { canvas_id: canvasId, ...(requestedSlot === undefined ? {} : { slot }),
+      ...(location === undefined ? {} : { location }) }
     await client.query(
       `INSERT INTO payment_quotes
          (quote_id, repo_url, subject_pubkey, resource_url, requirements, expires_at,
@@ -112,12 +113,15 @@ export async function createPlotQuote(subjectPubkey: string, endpoint: string,
       [canvasId, slot, quoteId],
     )
     if (reserved.rowCount !== 1) throw new Error('Tessera slot changed during reservation')
-    return { quoteId, resourceUrl: resourceUrl.href, resource, extensions, pricing }
+    const persistedLocation = (await client.query(
+      `SELECT latitude, longitude FROM tessera_canvases WHERE canvas_id = $1`, [canvasId])).rows[0]
+    return { quoteId, resourceUrl: resourceUrl.href, resource, extensions, pricing,
+      location: { latitude: Number(persistedLocation.latitude), longitude: Number(persistedLocation.longitude) } }
   })
 }
 
 export async function loadPlotQuote(quoteId: string, canvasId: string, subjectPubkey: string,
-  allowExpired = false, requestedSlot?: number) {
+  allowExpired = false, requestedSlot?: number, location?: TesseraLocation) {
   assertQuoteId(quoteId)
   const result = await database().query(
     `SELECT quote.resource_url, quote.requirements, quote.pricing, quote.scope402_extension,
@@ -136,7 +140,8 @@ export async function loadPlotQuote(quoteId: string, canvasId: string, subjectPu
   }
   const row = result.rows[0]
   if (!isDeepStrictEqual(row.request_binding,
-    { canvas_id: canvasId, ...(requestedSlot === undefined ? {} : { slot: requestedSlot }) })) {
+    { canvas_id: canvasId, ...(requestedSlot === undefined ? {} : { slot: requestedSlot }),
+      ...(location === undefined ? {} : { location }) })) {
     throw new PaymentError('PAYMENT_REQUIREMENTS_MISMATCH', 'Tessera quote is bound to another request')
   }
   const extensions = parseTesseraScope402Extension(row.scope402_extension)

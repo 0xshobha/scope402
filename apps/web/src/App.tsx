@@ -1,8 +1,9 @@
 import { motion } from 'motion/react'
-import { useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import { loadLiveState, publicApiUrl, type LiveState } from './api.js'
-import { DemoPage } from './DemoPage.js'
-import { TesseraPage } from './TesseraPage.js'
+
+const DemoPage = lazy(() => import('./DemoPage.js').then((module) => ({ default: module.DemoPage })))
+const TesseraPage = lazy(() => import('./TesseraPage.js').then((module) => ({ default: module.TesseraPage })))
 
 const states = ['AGREE TERMS', 'PAY', 'RECEIVE PERMISSION', 'ENFORCE EVERY CALL']
 
@@ -60,8 +61,8 @@ function StateRail() {
 }
 
 export function App() {
-  if (window.location.pathname.startsWith('/tessera')) return <TesseraPage />
-  if (window.location.pathname.startsWith('/demo')) return <DemoPage />
+  if (window.location.pathname.startsWith('/tessera')) return <Suspense fallback={<main className="route-loading">LOADING TESSERA MAP…</main>}><TesseraPage /></Suspense>
+  if (window.location.pathname.startsWith('/demo')) return <Suspense fallback={<main className="route-loading">LOADING LIVE DEMO…</main>}><DemoPage /></Suspense>
   const [live, setLive] = useState<LiveState>({ state: 'waking', health: 'unavailable', contract: 'unavailable' })
   const [checking, setChecking] = useState(true)
   const [refresh, setRefresh] = useState(0)

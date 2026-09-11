@@ -5,6 +5,21 @@ import { TESSERA_CANVAS_ID, TESSERA_CANVAS_SIZE, TESSERA_SLOT_COUNT,
   parseCanvasId } from './resource.js'
 
 const DEFAULT_WORLD_LIMIT = 64
+export type TesseraLocation = { latitude: number; longitude: number }
+export const DEFAULT_TESSERA_LOCATION: TesseraLocation = { latitude: 19.076, longitude: 72.8777 }
+
+export function parseTesseraLocation(value: unknown): TesseraLocation {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('location must contain latitude and longitude')
+  }
+  const input = value as Record<string, unknown>
+  if (Object.keys(input).sort().join(',') !== 'latitude,longitude' ||
+      typeof input.latitude !== 'number' || !Number.isFinite(input.latitude) || input.latitude < -85 || input.latitude > 85 ||
+      typeof input.longitude !== 'number' || !Number.isFinite(input.longitude) || input.longitude < -180 || input.longitude > 180) {
+    throw new Error('location must contain finite latitude (-85 to 85) and longitude (-180 to 180)')
+  }
+  return { latitude: Number(input.latitude.toFixed(5)), longitude: Number(input.longitude.toFixed(5)) }
+}
 
 export function tesseraWorldLimit() {
   const configured = process.env.TESSERA_WORLD_LIMIT ?? String(DEFAULT_WORLD_LIMIT)
@@ -59,7 +74,8 @@ async function reclaimAbandonedCanvas(client: TransactionClient) {
   return true
 }
 
-export async function ensureCanvas(client: TransactionClient, canvasId: string) {
+export async function ensureCanvas(client: TransactionClient, canvasId: string,
+  requestedLocation?: TesseraLocation) {
   const id = parseCanvasId(canvasId)
   let exists = (await client.query(
     `SELECT 1 FROM tessera_canvases WHERE canvas_id = $1 FOR SHARE`, [id])).rowCount === 1
@@ -79,10 +95,21 @@ export async function ensureCanvas(client: TransactionClient, canvasId: string) 
           'The public Tessera world limit has been reached; choose an existing world')
       }
       await client.query(
-        `INSERT INTO tessera_canvases (canvas_id, name, width, height)
-         VALUES ($1, $2, $3, $3)`,
-        [id, canvasDisplayName(id), TESSERA_CANVAS_SIZE],
+        `INSERT INTO tessera_canvases (canvas_id, name, width, height, latitude, longitude)
+         VALUES ($1, $2, $3, $3, $4, $5)`,
+        [id, canvasDisplayName(id), TESSERA_CANVAS_SIZE,
+          (requestedLocation ?? DEFAULT_TESSERA_LOCATION).latitude,
+          (requestedLocation ?? DEFAULT_TESSERA_LOCATION).longitude],
       )
+    }
+  }
+  if (requestedLocation) {
+    const location = await client.query(
+      `SELECT latitude, longitude FROM tessera_canvases WHERE canvas_id = $1`, [id])
+    if (location.rowCount !== 1 || Number(location.rows[0].latitude) !== requestedLocation.latitude ||
+        Number(location.rows[0].longitude) !== requestedLocation.longitude) {
+      throw new PaymentError('WORLD_LOCATION_MISMATCH',
+        'This world already exists at a different geographic location')
     }
   }
   await client.query(
@@ -99,6 +126,7 @@ tesseraCanvases.get('/', async (c) => {
   try {
     const result = await database().query(
       `SELECT canvas.canvas_id, canvas.name, canvas.width, canvas.height,
+              canvas.latitude, canvas.longitude,
               extract(epoch from canvas.created_at)::bigint AS created_at,
               count(DISTINCT pixel.x::text || ':' || pixel.y::text)::integer AS painted_pixels,
               count(DISTINCT slot.slot) FILTER (WHERE slot.status = 'allocated' AND
@@ -108,12 +136,14 @@ tesseraCanvases.get('/', async (c) => {
        LEFT JOIN tessera_slots AS slot ON slot.canvas_id = canvas.canvas_id
        LEFT JOIN plot_jobs AS job ON job.quote_id = slot.quote_id AND job.status = 'complete'
        LEFT JOIN tool_leases AS lease ON lease.lease_id = job.lease_id
-       GROUP BY canvas.canvas_id, canvas.name, canvas.width, canvas.height, canvas.created_at
+       GROUP BY canvas.canvas_id, canvas.name, canvas.width, canvas.height,
+                canvas.latitude, canvas.longitude, canvas.created_at
        ORDER BY canvas.created_at, canvas.canvas_id LIMIT 100`,
     )
     c.header('Cache-Control', 'no-store')
     return c.json({ canvases: result.rows.map((row) => ({ canvas_id: String(row.canvas_id),
       name: String(row.name), width: Number(row.width), height: Number(row.height),
+      location: { latitude: Number(row.latitude), longitude: Number(row.longitude) },
       created_at: Number(row.created_at), painted_pixels: Number(row.painted_pixels),
       claimed_territories: Number(row.claimed_territories) })) })
   } catch (error) {

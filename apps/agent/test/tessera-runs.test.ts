@@ -26,7 +26,8 @@ function fixture() {
     requestBody: '{}', required: { x402Version: 2, resource: {
       url: 'https://auditlab.example/v1/plots?quote_id=123e4567-e89b-42d3-a456-426614174000' },
     accepts: [terms] }, terms, fingerprint: 'sealed', subject,
-    quote: { canvas_id: 'main', region, pricing: { base_tinybars: '50000',
+    quote: { canvas_id: 'main', region,
+      location: { latitude: 19.076, longitude: 72.8777 }, pricing: { base_tinybars: '50000',
       per_call_tinybars: '500', calls: 12, total_tinybars: '56000' },
     policy_hash: `sha256:${'a'.repeat(64)}` },
   }

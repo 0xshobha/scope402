@@ -4,8 +4,9 @@ import {
   getTesseraCanvas, getTesseraCanvases, getTesseraRun, paintTesseraPixel,
   publicTesseraAgentUrl, publicTesseraApiUrl, subscribeTesseraCanvas,
   type CanvasRegion, type TesseraActionName, type TesseraActionResult,
-  type TesseraCanvas, type TesseraCanvasSummary, type TesseraCapability, type TesseraRun,
+  type TesseraCanvas, type TesseraCanvasSummary, type TesseraCapability, type TesseraLocation, type TesseraRun,
 } from './tessera-api.js'
+import { TesseraWorldMap } from './TesseraWorldMap.js'
 
 const storedRunId = 'scope402-tessera-run-id'
 const storedRunToken = 'scope402-tessera-run-token'
@@ -145,7 +146,7 @@ function PurchaseProof({ run }: { run?: TesseraRun }) {
       <div><dt>PAYER</dt><dd className="mono">{quote?.payer ?? '—'}</dd></div>
       <div><dt>MERCHANT</dt><dd className="mono">{quote?.merchant ?? '—'}</dd></div>
       <div><dt>NETWORK</dt><dd className="mono">{quote?.network?.toUpperCase() ?? '—'}</dd></div>
-      <div><dt>RESOURCE</dt><dd className="mono">{quote ? `${quote.canvas_id} · ${regionLabel(quote.region)}` : '—'}</dd></div>
+      <div><dt>RESOURCE</dt><dd className="mono">{quote ? `${quote.canvas_id} · ${regionLabel(quote.region)}${quote.location ? ` · ${quote.location.latitude.toFixed(4)}, ${quote.location.longitude.toFixed(4)}` : ''}` : '—'}</dd></div>
       <div><dt>POLICY HASH</dt><dd className="mono" title={quote?.policy_hash}>{short(quote?.policy_hash, 18, 10)}</dd></div>
     </dl>
     <div className={`settlement-proof ${payment ? 'settled' : ''}`}>
@@ -416,6 +417,7 @@ export function TesseraPage() {
   const [selectedPixel, setSelectedPixel] = useState<{ x: number; y: number }>()
   const [selectedSlot, setSelectedSlot] = useState<number>()
   const [selectedColor, setSelectedColor] = useState('#7C4DFF')
+  const [worldLocation, setWorldLocation] = useState<TesseraLocation>({ latitude: 19.076, longitude: 72.8777 })
   const agentProbeFailures = useRef(0)
 
   const resetRun = () => {
@@ -567,7 +569,8 @@ export function TesseraPage() {
     if (selectedSlot === undefined) return
     setLoading(true); setError('')
     try {
-      const created = await createTesseraRun(selectedSlot, canvasId)
+      const created = await createTesseraRun(selectedSlot, canvasId,
+        knownWorld ? undefined : worldLocation)
       setAgentHealth('ONLINE')
       setRunId(created.run.run_id); setToken(created.run_token); setRun(created.run)
       window.sessionStorage.setItem(storedRunId, created.run.run_id)
@@ -638,6 +641,8 @@ export function TesseraPage() {
     setSelectedPixel(undefined)
     setError('')
     setShareStatus('COPY WORLD LINK')
+    const location = canvases.find((item) => item.canvas_id === nextCanvasId)?.location
+    if (location) setWorldLocation(location)
     window.sessionStorage.setItem(storedCanvasId, nextCanvasId)
     updateWorldUrl(nextCanvasId)
   }
@@ -702,6 +707,10 @@ export function TesseraPage() {
         </form>
       </div>
     </section>
+
+    <TesseraWorldMap canvases={canvases} selectedId={canvasId} canvas={canvas}
+      draftLocation={canvas?.location ?? knownWorld?.location ?? worldLocation} locked={Boolean(runId)}
+      onChooseWorld={chooseWorld} onChooseLocation={setWorldLocation} />
 
     <section className="agent-entry" aria-label="Use Tessera from an external agent">
       <div><span className="section-label">AGENT ENTRY POINT</span>

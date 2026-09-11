@@ -7,6 +7,7 @@ import { DemoRunError, DemoRunService } from './demo-runs.js'
 import type { DemoActionName } from './capability-demo.js'
 import type { TesseraActionName } from './tessera-capability.js'
 import type { TesseraRunService } from './tessera-runs.js'
+import type { TesseraLocation } from './tessera-purchase.js'
 
 function bearer(value: string | undefined) {
   return value?.startsWith('Bearer ') ? value.slice(7) : ''
@@ -41,7 +42,7 @@ export function createDemoAgentApp(service: DemoRunService, allowedOrigins: Set<
   })
   app.get('/health', (c) => c.json({ ok: true, service: 'scope402-demo-agent',
     mode: 'hedera-testnet-only', features: { auditlab: true, tessera: Boolean(tessera),
-      tessera_worlds: Boolean(tessera) }, contracts: { tessera_runs: tessera ? 2 : 0 } }))
+      tessera_worlds: Boolean(tessera) }, contracts: { tessera_runs: tessera ? 3 : 0 } }))
   app.post('/demo/runs', async (c) => {
     try {
       let value: unknown
@@ -113,17 +114,30 @@ export function createDemoAgentApp(service: DemoRunService, allowedOrigins: Set<
       }
       const input = value as Record<string, unknown>
       const keys = Object.keys(input).sort()
-      if (!['', 'canvas_id', 'canvas_id,slot', 'slot'].includes(keys.join(',')) ||
+      if (!['', 'canvas_id', 'canvas_id,location', 'canvas_id,location,slot',
+        'canvas_id,slot', 'location', 'location,slot', 'slot'].includes(keys.join(',')) ||
           (input.slot !== undefined && (!Number.isSafeInteger(input.slot) || Number(input.slot) < 0 ||
             Number(input.slot) >= 16)) ||
           (input.canvas_id !== undefined && (typeof input.canvas_id !== 'string' ||
-            !/^[a-z0-9](?:[a-z0-9-]{1,30}[a-z0-9])?$/.test(input.canvas_id)))) {
+            !/^[a-z0-9](?:[a-z0-9-]{1,30}[a-z0-9])?$/.test(input.canvas_id))) ||
+          (input.location !== undefined && (!input.location || typeof input.location !== 'object' ||
+            Array.isArray(input.location) ||
+            Object.keys(input.location as object).sort().join(',') !== 'latitude,longitude' ||
+            typeof (input.location as Record<string, unknown>).latitude !== 'number' ||
+            !Number.isFinite((input.location as Record<string, number>).latitude) ||
+            (input.location as Record<string, number>).latitude < -85 ||
+            (input.location as Record<string, number>).latitude > 85 ||
+            typeof (input.location as Record<string, unknown>).longitude !== 'number' ||
+            !Number.isFinite((input.location as Record<string, number>).longitude) ||
+            (input.location as Record<string, number>).longitude < -180 ||
+            (input.location as Record<string, number>).longitude > 180))) {
         throw new DemoRunError('INVALID_REQUEST', 400,
-          'Tessera run creation accepts only a safe canvas_id and optional slot from 0 to 15')
+          'Tessera run creation accepts only a safe canvas_id, optional slot, and geographic location')
       }
       return c.json(await tessera.create(clientIp(c.req.header('cf-connecting-ip'), trustedProxy),
         input.slot === undefined ? undefined : Number(input.slot),
-        input.canvas_id === undefined ? 'main' : input.canvas_id), 202)
+        input.canvas_id === undefined ? 'main' : input.canvas_id,
+        input.location === undefined ? undefined : input.location as TesseraLocation), 202)
     } catch (error) {
       return demoError(c, error)
     }

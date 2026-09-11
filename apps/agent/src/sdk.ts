@@ -45,10 +45,12 @@ export type TesseraWorldSummary = {
   created_at: number
   painted_pixels: number
   claimed_territories: number
+  location: { latitude: number; longitude: number }
 }
 
 export type TesseraWorldState = {
   canvas_id: string
+  location: { latitude: number; longitude: number }
   width: number
   height: number
   palette: string[]
@@ -152,6 +154,15 @@ function agentId(value: unknown) {
   return typeof value === 'string' && /^(?:agent|p256):[0-9a-f]{12,64}$/.test(value)
 }
 
+function validLocation(value: unknown) {
+  const location = record(value, 'Tessera returned an invalid geographic location')
+  return Object.keys(location).sort().join(',') === 'latitude,longitude' &&
+    typeof location.latitude === 'number' && Number.isFinite(location.latitude) &&
+    location.latitude >= -85 && location.latitude <= 85 &&
+    typeof location.longitude === 'number' && Number.isFinite(location.longitude) &&
+    location.longitude >= -180 && location.longitude <= 180
+}
+
 function validPoint(value: unknown, width: number, height: number) {
   const point = record(value, 'Tessera returned an invalid pixel')
   return safeInteger(point.x) && safeInteger(point.y) && Number(point.x) < width &&
@@ -170,6 +181,7 @@ function validRegion(value: unknown, expectedCanvasId: string, width: number, he
 function assertWorldSummary(value: unknown): TesseraWorldSummary {
   const world = record(value, 'Tessera returned an invalid world catalogue entry')
   if (!canvasId(world.canvas_id) || typeof world.name !== 'string' || !world.name ||
+      !validLocation(world.location) ||
       !safeInteger(world.width, 1) || !safeInteger(world.height, 1) ||
       !safeInteger(world.created_at) || !safeInteger(world.painted_pixels) ||
       !safeInteger(world.claimed_territories)) {
@@ -184,7 +196,7 @@ function assertWorldState(value: unknown, expectedCanvasId: string): TesseraWorl
   const arrays = ['palette', 'pixels', 'regions', 'reservations', 'leaderboard', 'recent_activity']
   const width = Number(world.width)
   const height = Number(world.height)
-  if (world.canvas_id !== expectedCanvasId || !safeInteger(width, 1) ||
+  if (world.canvas_id !== expectedCanvasId || !validLocation(world.location) || !safeInteger(width, 1) ||
       !safeInteger(height, 1) || typeof metrics.name !== 'string' || !metrics.name ||
       !arrays.every((field) => Array.isArray(world[field])) ||
       !(world.palette as unknown[]).every(hexColor) ||
@@ -602,9 +614,10 @@ export class Scope402Client {
     }
   }
 
-  prepareTessera(input: { subject: AgentSubject; canvasId?: string; slot?: number }) {
+  prepareTessera(input: { subject: AgentSubject; canvasId?: string; slot?: number;
+    location?: { latitude: number; longitude: number } }) {
     return preparePlotPurchase(this.paymentPolicy(), input.subject, this.request,
-      input.slot, input.canvasId ?? 'main')
+      input.slot, input.canvasId ?? 'main', input.location)
   }
 
   async approveTessera(prepared: PreparedPlot, payerPrivateKey: string) {

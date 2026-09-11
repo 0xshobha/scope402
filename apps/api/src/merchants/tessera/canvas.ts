@@ -15,7 +15,7 @@ async function readCanvas(rawCanvasId: unknown) {
     const canvasId = parseCanvasId(rawCanvasId)
     const [canvas, pixels, contributionRows, events, reservations, regions] = await Promise.all([
       database().query(
-        `SELECT name, width, height FROM tessera_canvases WHERE canvas_id = $1`, [canvasId]),
+        `SELECT name, width, height, latitude, longitude FROM tessera_canvases WHERE canvas_id = $1`, [canvasId]),
       database().query(
         `SELECT pixel.x, pixel.y, pixel.color, pixel.lease_id, lease.subject_pubkey,
                 extract(epoch from pixel.updated_at)::bigint AS updated_at
@@ -89,6 +89,7 @@ async function readCanvas(rawCanvasId: unknown) {
         current_pixels: ownership.get(entry.agent)?.current_pixels ?? 0 }))
     const totalPlacements = contributions.reduce((total, entry) => total + entry.placements, 0)
     return { canvas_id: canvasId, width, height, palette: TESSERA_PALETTE,
+      location: { latitude: Number(metadata.latitude), longitude: Number(metadata.longitude) },
       world: { name: String(metadata.name), painted_pixels: publicPixels.length,
         total_placements: totalPlacements,
         total_pixels: width * height,

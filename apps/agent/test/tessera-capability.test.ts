@@ -14,7 +14,8 @@ function setup() {
     requestBody: '{}', required: { x402Version: 2 as const, resource: {
       url: 'https://auditlab.example/v1/plots?quote_id=123e4567-e89b-42d3-a456-426614174000' },
     accepts: [] }, terms: {} as PreparedPlot['terms'], fingerprint: 'sealed', subject: principal,
-    quote: { canvas_id: 'main' as const, region, pricing: { base_tinybars: '50000',
+    quote: { canvas_id: 'main' as const, region,
+      location: { latitude: 19.076, longitude: 72.8777 }, pricing: { base_tinybars: '50000',
       per_call_tinybars: '500', calls: 12 as const, total_tinybars: '56000' },
     policy_hash: `sha256:${'a'.repeat(64)}` } } satisfies PreparedPlot
   const result = { status: 'complete' as const, canvas_id: 'main' as const, region,

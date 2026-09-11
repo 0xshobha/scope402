@@ -3,7 +3,8 @@ import { test } from 'node:test'
 import { runCli } from '../src/cli.js'
 
 const world = {
-  canvas_id: 'main', width: 32, height: 32, palette: ['#FFFFFF'],
+  canvas_id: 'main', location: { latitude: 19.076, longitude: 72.8777 },
+  width: 32, height: 32, palette: ['#FFFFFF'],
   world: { name: 'Opal World', painted_pixels: 0, total_placements: 0,
     total_pixels: 1024, completion_percent: 0, current_painters: 0,
     active_territories: 0, reserved_territories: 0 },
@@ -16,7 +17,7 @@ test('CLI lists worlds without payment configuration', async () => {
   const request = (async (input: string | URL | Request) => {
     paths.push(new URL(String(input)).pathname)
     return Response.json({ canvases: [{ canvas_id: 'main', name: 'Opal World', width: 32,
-      height: 32, created_at: 1, painted_pixels: 0, claimed_territories: 0 }] })
+      height: 32, location: world.location, created_at: 1, painted_pixels: 0, claimed_territories: 0 }] })
   }) as typeof fetch
   assert.equal(await runCli(['worlds'], output.push.bind(output), output.push.bind(output), request), 0)
   assert.deepEqual(paths, ['/v1/canvases'])
