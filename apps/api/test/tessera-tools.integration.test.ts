@@ -230,6 +230,24 @@ test('Tessera enforces canvas authority and pixel mutation atomically', async (t
     assert.equal(world.world.total_placements, 1)
   })
 
+  await t.test('legacy pixels remain visible in truthful world totals and contributor rankings', async () => {
+    const issued = await issueRoot(subjectPubkey, 'legacy-world')
+    const args = { canvas_id: 'legacy-world', x: issued.region.x,
+      y: issued.region.y, color: '#7C4DFF' }
+    assert.equal((await place(signedPixelBody(issued, args, 1))).status, 200)
+    await database().query(`DELETE FROM tessera_pixel_events WHERE canvas_id = 'legacy-world'`)
+
+    const world = await (await app.request('/v1/canvas/legacy-world')).json()
+    assert.equal(world.world.painted_pixels, 1)
+    assert.equal(world.world.total_placements, 1)
+    assert.equal(world.world.current_painters, 1)
+    assert.equal(world.leaderboard.length, 1)
+    assert.equal(world.leaderboard[0].placements, 1)
+    assert.equal(world.leaderboard[0].current_pixels, 1)
+    assert.equal(world.leaderboard[0].last_active, world.pixels[0].updated_at)
+    assert.deepEqual(world.recent_activity, [])
+  })
+
   await t.test('an out-of-scope coordinate does not paint or consume', async () => {
     const issued = await issueRoot()
     const args = { canvas_id: 'main', x: issued.region.x + issued.region.width,

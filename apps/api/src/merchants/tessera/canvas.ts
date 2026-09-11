@@ -72,22 +72,32 @@ async function readCanvas(rawCanvasId: unknown) {
     const publicPixels = pixels.rows.map((row) => ({ x: Number(row.x), y: Number(row.y),
       color: String(row.color), updated_at: Number(row.updated_at),
       agent: agentFingerprint(row.subject_pubkey) }))
-    const ownership = new Map<string, { agent: string; current_pixels: number }>()
+    const ownership = new Map<string, { agent: string; current_pixels: number; last_active: number }>()
     for (const pixel of publicPixels) {
       const current = ownership.get(pixel.agent)
       ownership.set(pixel.agent, { agent: pixel.agent,
-        current_pixels: (current?.current_pixels ?? 0) + 1 })
+        current_pixels: (current?.current_pixels ?? 0) + 1,
+        last_active: Math.max(current?.last_active ?? 0, pixel.updated_at) })
     }
     const recentActivity = events.rows.map((row) => ({ x: Number(row.x), y: Number(row.y),
       color: String(row.color), counter: Number(row.counter),
       agent: agentFingerprint(row.subject_pubkey), painted_at: Number(row.painted_at) }))
-    const contributions = contributionRows.rows.map((row) => ({ agent: agentFingerprint(row.subject_pubkey),
-      placements: Number(row.placements), last_active: Number(row.last_active) }))
-    const leaderboard = contributions.sort((left, right) =>
+    const contributions = new Map(contributionRows.rows.map((row) => {
+      const agent = agentFingerprint(row.subject_pubkey)
+      return [agent, { agent, placements: Number(row.placements), last_active: Number(row.last_active) }]
+    }))
+    for (const current of ownership.values()) {
+      const recorded = contributions.get(current.agent)
+      contributions.set(current.agent, { agent: current.agent,
+        placements: Math.max(recorded?.placements ?? 0, current.current_pixels),
+        last_active: Math.max(recorded?.last_active ?? 0, current.last_active) })
+    }
+    const contributionList = [...contributions.values()]
+    const leaderboard = contributionList.sort((left, right) =>
       right.placements - left.placements || right.last_active - left.last_active ||
       left.agent.localeCompare(right.agent)).slice(0, 10).map((entry) => ({ ...entry,
         current_pixels: ownership.get(entry.agent)?.current_pixels ?? 0 }))
-    const totalPlacements = contributions.reduce((total, entry) => total + entry.placements, 0)
+    const totalPlacements = contributionList.reduce((total, entry) => total + entry.placements, 0)
     return { canvas_id: canvasId, width, height, palette: TESSERA_PALETTE,
       location: { latitude: Number(metadata.latitude), longitude: Number(metadata.longitude) },
       world: { name: String(metadata.name), painted_pixels: publicPixels.length,
