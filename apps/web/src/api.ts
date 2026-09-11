@@ -1,3 +1,5 @@
+import { fetchReadOnly } from './http.js'
+
 export type Discovery = {
   service: { id: string; name: string }
   version: number
@@ -26,8 +28,8 @@ function endpoint(path: string) {
 export async function loadLiveState(): Promise<LiveState> {
   const started = performance.now()
   const [healthResult, discoveryResult] = await Promise.allSettled([
-    fetch(endpoint('/health'), { signal: AbortSignal.timeout(10_000) }),
-    fetch(endpoint('/.well-known/scope402'), { signal: AbortSignal.timeout(10_000) }),
+    fetchReadOnly(endpoint('/health'), {}, 10_000),
+    fetchReadOnly(endpoint('/.well-known/scope402'), {}, 10_000),
   ])
   let health: LiveState['health'] = 'unavailable'
   let contractState: LiveState['contract'] = 'unavailable'

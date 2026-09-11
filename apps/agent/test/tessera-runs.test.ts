@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { DemoRunService, type DemoRunLimits } from '../src/demo-runs.js'
+import { DemoRunError, DemoRunService, type DemoRunLimits } from '../src/demo-runs.js'
 import { HostedAgentGuard } from '../src/hosted-payment-guard.js'
 import { ExactPaymentDeliveryError } from '../src/payment-client.js'
 import { ephemeralSubject } from '../src/subject.js'
@@ -308,6 +308,18 @@ test('AuditLab and Tessera share one active-run and payment budget', async () =>
   await audit.approve(auditRun.run.run_id, auditRun.run_token)
   const plot = await tessera.instance.create('203.0.113.1')
   assert.throws(() => tessera.instance.approve(plot.run.run_id, plot.run_token), /spend limit/)
+})
+
+test('cancelling an unpaid Tessera quote releases the shared active-run lock', async () => {
+  const guard = new HostedAgentGuard({ ...limits, perIpRunsPerHour: 1 })
+  const tessera = service({}, guard)
+  const created = await tessera.instance.create('203.0.113.45')
+  assert.deepEqual(tessera.instance.cancel(created.run.run_id, created.run_token), {
+    cancelled: true, run_id: created.run.run_id,
+  })
+  await assert.doesNotReject(tessera.instance.create('203.0.113.45'))
+  assert.throws(() => tessera.instance.get(created.run.run_id, created.run_token),
+    (error) => error instanceof DemoRunError && error.status === 404)
 })
 
 test('expired unpaid preparations do not exhaust the visitor run quota', () => {

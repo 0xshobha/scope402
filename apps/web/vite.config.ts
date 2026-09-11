@@ -22,12 +22,16 @@ export default defineConfig({
       '/auditlab': {
         target: 'https://scope402-auditlab.onrender.com',
         changeOrigin: true,
+        timeout: 35_000,
+        proxyTimeout: 35_000,
         rewrite: (path) => path.replace(/^\/auditlab/, ''),
       },
       '/demo-agent': {
         target: process.env.VITE_TESSERA_AGENT_URL ?? process.env.VITE_DEMO_AGENT_URL ??
           'https://scope402-demo-agent.onrender.com',
         changeOrigin: true,
+        timeout: 35_000,
+        proxyTimeout: 35_000,
         rewrite: (path) => path.replace(/^\/demo-agent/, ''),
       },
     },

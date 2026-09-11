@@ -217,9 +217,10 @@ export function App() {
       <div className="custody-grid">
         <article><span>01</span><h3>PAYER AGENT</h3><p>Evaluates the quote, applies a spend policy, and signs the HBAR transfer.</p></article>
         <article><span>02</span><h3>PROTECTED SERVICE</h3><p>Settles the payment, performs the purchased work, and signs limited permission.</p></article>
-        <article><span>03</span><h3>HEDERA</h3><p>Records the real transfer. HashScan proves money moved; it does not grant authority.</p>
-          <a className="evidence-link mono" href="https://hashscan.io/testnet/transaction/0.0.7162784-1788595940-223982333"
-            target="_blank" rel="noreferrer">VERIFIED TESTNET SETTLEMENT ↗</a></article>
+        <article><span>03</span><h3>HEDERA</h3><p>Records the real transfer. The public Mirror Node proves money moved; it does not grant authority.</p>
+          <a className="evidence-link mono"
+            href="https://testnet.mirrornode.hedera.com/api/v1/transactions/0.0.7162784-1788595940-223982333"
+            target="_blank" rel="noreferrer">VERIFY ON HEDERA MIRROR NODE ↗</a></article>
       </div>
     </section>
 

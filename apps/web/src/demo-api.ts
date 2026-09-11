@@ -1,3 +1,5 @@
+import { fetchReadOnly } from './http.js'
+
 export type DemoRun = {
   run_id: string
   state: 'PAYMENT_REQUIRED' | 'PAYMENT_RECOVERY' | 'SETTLING' | 'COMPLETE' | 'FAILED'
@@ -98,10 +100,18 @@ export async function approveDemoRun(runId: string, token: string) {
 }
 
 export async function getDemoRun(runId: string, token: string) {
-  const response = await fetch(endpoint(`/demo/runs/${runId}`), {
-    headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(30_000),
-  })
+  const response = await fetchReadOnly(endpoint(`/demo/runs/${runId}`), {
+    headers: { Authorization: `Bearer ${token}` },
+  }, 30_000)
   return readResponse<DemoRun>(response)
+}
+
+export async function cancelDemoRun(runId: string, token: string) {
+  const response = await fetch(endpoint(`/demo/runs/${runId}`), {
+    method: 'DELETE', headers: { Authorization: `Bearer ${token}` },
+    signal: AbortSignal.timeout(15_000),
+  })
+  return readResponse<{ cancelled: true; run_id: string }>(response)
 }
 
 export async function executeDemoAction(runId: string, token: string, action: DemoActionName) {

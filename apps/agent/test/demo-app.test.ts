@@ -86,6 +86,10 @@ test('HTTP boundary accepts only repo_url and rejects browser payment fields', a
   assert.equal(spoofed.status, 409)
   assert.equal((await spoofed.json() as { error: string }).error, 'DEMO_RUN_ACTIVE')
   const body = await created.json() as { run: { run_id: string }; run_token: string }
+  const cancelled = await app.request(`/demo/runs/${body.run.run_id}`, { method: 'DELETE',
+    headers: { Authorization: `Bearer ${body.run_token}` } })
+  assert.equal(cancelled.status, 200)
+  assert.equal((await cancelled.json() as { cancelled: boolean }).cancelled, true)
   const approve = await app.request(`/demo/runs/${body.run.run_id}/approve`, { method: 'POST',
     headers: { Authorization: `Bearer ${body.run_token}` },
     body: JSON.stringify({ transaction: 'caller-controlled' }) })

@@ -63,6 +63,40 @@ test('preparation returns a real quote-shaped run and does not approve payment',
   assert.equal(approvals, 0)
 })
 
+test('an unpaid quote can be cancelled and immediately releases the visitor', async () => {
+  const scan = prepared()
+  const service = new DemoRunService({
+    prepare: async () => scan,
+    approve: async () => ({ result: result(scan) }),
+    payerBalanceTinybars: async () => 10_000_000n,
+  }, { ...limits, perIpRunsPerHour: 1 })
+  const first = await service.create(scan.repoUrl, '203.0.113.41')
+  assert.deepEqual(service.cancel(first.run.run_id, first.run_token), {
+    cancelled: true, run_id: first.run.run_id,
+  })
+  await assert.doesNotReject(service.create(scan.repoUrl, '203.0.113.41'))
+  assert.throws(() => service.get(first.run.run_id, first.run_token),
+    (error) => error instanceof DemoRunError && error.status === 404)
+})
+
+test('a payment-attempted run cannot be cancelled', async () => {
+  const scan = prepared()
+  let release!: () => void
+  const waiting = new Promise<void>((resolve) => { release = resolve })
+  const service = new DemoRunService({
+    prepare: async () => scan,
+    approve: async () => { await waiting; return { result: result(scan) } },
+    payerBalanceTinybars: async () => 10_000_000n,
+  }, limits)
+  const created = await service.create(scan.repoUrl, '203.0.113.42')
+  const approval = service.approve(created.run.run_id, created.run_token)
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.throws(() => service.cancel(created.run.run_id, created.run_token),
+    (error) => error instanceof DemoRunError && error.code === 'DEMO_RUN_NOT_CANCELLABLE')
+  release()
+  await approval
+})
+
 test('concurrent and repeated approval perform exactly one payment and return the same result', async () => {
   let approvals = 0
   const scan = prepared()

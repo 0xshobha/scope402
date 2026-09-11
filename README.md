@@ -244,6 +244,8 @@ after explicit payment approval. Independent
 agents do not need that wrapper. The local `@scope402/agent` package exports a TypeScript SDK with the same explicit prepare, approve,
 invoke, and delegate flow, while the OpenAPI and signing contract remain the language-neutral integration surface.
 The SDK is a tested local package in this checkout and is not claimed as published on npm.
+An authenticated `DELETE` on either hosted-run URL cancels only a still-unpaid quote and releases the shared
+visitor lock. Once payment has been attempted, the cancellation route fails closed.
 
 Tessera's browser is map-first: OpenStreetMap provides the navigable geographic base, while PostgreSQL remains the source of truth
 for each anchored 32 × 32 world, its sixteen paid territories, pixels, activity, and capability state. A map click chooses the
@@ -288,7 +290,7 @@ A public-origin run against `sindresorhus/is` completed payment, scanning, lease
 follow-up, wrong-key denial, byte-identical replay denial, and server-side expiry denial.
 
 - Transaction: `0.0.7162784@1788672696.168914659`
-- [HashScan](https://hashscan.io/testnet/transaction/0.0.7162784-1788672696-168914659)
+- [Hedera Mirror Node proof](https://testnet.mirrornode.hedera.com/api/v1/transactions/0.0.7162784-1788672696-168914659)
 - Payer: `0.0.10374937`
 - Merchant: `0.0.8258555`
 - Amount: `55500` tinybars (`0.000555 HBAR`)
@@ -303,7 +305,7 @@ A public Tessera run purchased an `8 × 8`, 12-call root capability, delegated a
 capability to a different P-256 worker, committed one in-scope pixel, and rejected boundary violations.
 
 - Transaction: `0.0.7162784@1788672630.715449934`
-- [HashScan](https://hashscan.io/testnet/transaction/0.0.7162784-1788672630-715449934)
+- [Hedera Mirror Node proof](https://testnet.mirrornode.hedera.com/api/v1/transactions/0.0.7162784-1788672630-715449934)
 - Payer: `0.0.10374937`
 - Merchant: `0.0.8258555`
 - Amount: `56000` tinybars (`0.00056 HBAR`)
@@ -407,7 +409,9 @@ corepack pnpm test
 corepack pnpm build
 ```
 
-`pnpm test` includes PostgreSQL integration tests. It verifies AuditLab payment recovery and ToolLease
+`pnpm test` includes PostgreSQL integration tests. When `DATABASE_URL` is unset, the runner reuses a running
+PostgreSQL test container on port `55432` or provisions the disposable `scope402-postgres-test` container; an
+explicit `DATABASE_URL` takes precedence. It verifies AuditLab payment recovery and ToolLease
 enforcement plus Tessera slot reservation, atomic pixel mutation, resource denial, parent-signed delegation,
 immutable lineage, root expiry, budget conservation, and concurrent invocation/delegation races.
 

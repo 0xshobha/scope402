@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
-import { approveDemoRun, executeDemoAction, getDemoRun, prepareDemoRun, publicDemoAgentUrl,
+import { approveDemoRun, cancelDemoRun, executeDemoAction, getDemoRun, prepareDemoRun, publicDemoAgentUrl,
   type DemoActionName, type DemoActionResult, type DemoRun } from './demo-api.js'
+import { mirrorTransactionUrl } from './hedera-proof.js'
 
 const steps = ['CHOOSE REPO', 'SEE TERMS', 'AGENT PAYS', 'PAYMENT CONFIRMED', 'SCAN FINISHED', 'PERMISSION READY']
 const storedRunId = 'scope402-demo-run-id'
 const storedRunToken = 'scope402-demo-run-token'
+const storedTesseraRunId = 'scope402-tessera-run-id'
 
 function activeStep(run: DemoRun | undefined, settling: boolean) {
   if (!run) return 0
@@ -139,6 +141,24 @@ export function DemoPage() {
     }
   }
 
+  const cancel = async () => {
+    if (!run || !token || run.state !== 'PAYMENT_REQUIRED') return
+    setPreparing(true)
+    setError('')
+    try {
+      await cancelDemoRun(run.run_id, token)
+      window.sessionStorage.removeItem(storedRunId)
+      window.sessionStorage.removeItem(storedRunToken)
+      setRun(undefined)
+      setToken('')
+      setActions({})
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Could not cancel the unpaid quote')
+    } finally {
+      setPreparing(false)
+    }
+  }
+
   return <main className="demo-shell">
     <header className="site-header">
       <a className="brand" href="/">SCOPE<span>402</span></a>
@@ -174,7 +194,9 @@ export function DemoPage() {
           <strong>SAFE DEMO PAYMENT</strong>
           <span>Hedera testnet only</span><span>AuditLab only</span><span>Hard spend limit: 150,000 tinybars</span>
         </div>
-        {error && <div className="demo-error" role="alert"><strong>RUN STOPPED</strong><code>{error}</code></div>}
+        {error && <div className="demo-error" role="alert"><strong>RUN STOPPED</strong><code>{error}</code>
+          {error.startsWith('DEMO_RUN_ACTIVE') && window.sessionStorage.getItem(storedTesseraRunId) &&
+            <a className="button" href="/tessera">RETURN TO ACTIVE TESSERA RUN</a>}</div>}
       </div>
 
       <div className={`quote-panel ${run ? 'visible' : ''}`} aria-live="polite">
@@ -193,6 +215,8 @@ export function DemoPage() {
           </dl>
           {!['COMPLETE', 'FAILED'].includes(run.state) && <HoldToApprove amount={run.quote.pricing.total_tinybars}
             disabled={settling} recovering={run.state === 'PAYMENT_RECOVERY'} onApprove={approve} />}
+          {run.state === 'PAYMENT_REQUIRED' && <button className="button cancel-quote" type="button"
+            disabled={preparing || settling} onClick={() => void cancel()}>CANCEL UNPAID QUOTE</button>}
           {run.state === 'PAYMENT_RECOVERY' && <p className="settling-copy mono">NO NEW TRANSFER · RETRIES THE SAME SIGNED HEDERA TRANSACTION</p>}
           {settling && <p className="settling-copy mono">AGENT IS REVALIDATING · SIGNING · SETTLING…</p>}
         </>}
@@ -209,8 +233,8 @@ export function DemoPage() {
           <div><dt>MERCHANT</dt><dd className="mono">{run.result.payment.merchant}</dd></div>
           <div><dt>TRANSACTION</dt><dd className="mono" title={run.result.payment.transaction}>{short(run.result.payment.transaction, 16, 10)}</dd></div>
         </dl>
-        <a className="hashscan-link" href={run.result.payment.hashscan_url} target="_blank" rel="noreferrer">
-          VERIFY ON HASHSCAN ↗</a>
+        <a className="hashscan-link" href={mirrorTransactionUrl(run.result.payment.transaction)}
+          target="_blank" rel="noreferrer">VERIFY ON HEDERA MIRROR NODE ↗</a>
       </article>
 
       <article className="scan-card">

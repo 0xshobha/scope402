@@ -202,6 +202,17 @@ export class TesseraRunService {
     return structuredClone(this.authorized(runId, token).public)
   }
 
+  cancel(runId: string, token: string) {
+    const run = this.authorized(runId, token)
+    if (run.paymentAttempted || run.public.state !== 'PAYMENT_REQUIRED') {
+      throw new DemoRunError('DEMO_RUN_NOT_CANCELLABLE', 409,
+        'Only an unpaid Tessera quote can be cancelled')
+    }
+    this.runs.delete(runId)
+    this.guard.releaseRun(runId, true)
+    return { cancelled: true as const, run_id: runId }
+  }
+
   approve(runId: string, token: string) {
     const run = this.authorized(runId, token)
     if (run.result) return Promise.resolve(structuredClone(run.public))

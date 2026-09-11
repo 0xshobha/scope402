@@ -1,3 +1,5 @@
+import { fetchReadOnly } from './http.js'
+
 export type TesseraState =
   | 'PAYMENT_REQUIRED'
   | 'PAYMENT_RECOVERY'
@@ -207,10 +209,18 @@ export async function createTesseraRun(slot?: number, canvasId = 'main', locatio
 }
 
 export async function getTesseraRun(runId: string, token: string) {
-  const response = await fetch(endpoint(agentBase, `/tessera/runs/${encodeURIComponent(runId)}`), {
-    headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(15_000),
-  })
+  const response = await fetchReadOnly(endpoint(agentBase, `/tessera/runs/${encodeURIComponent(runId)}`), {
+    headers: { Authorization: `Bearer ${token}` },
+  }, 15_000)
   return assertRun(await readResponse<TesseraRun>(response))
+}
+
+export async function cancelTesseraRun(runId: string, token: string) {
+  const response = await fetch(endpoint(agentBase, `/tessera/runs/${encodeURIComponent(runId)}`), {
+    method: 'DELETE', headers: { Authorization: `Bearer ${token}` },
+    signal: AbortSignal.timeout(15_000),
+  })
+  return readResponse<{ cancelled: true; run_id: string }>(response)
 }
 
 export async function approveTesseraRun(runId: string, token: string) {
@@ -251,8 +261,7 @@ export async function paintTesseraPixel(runId: string, token: string,
 }
 
 export async function getTesseraAgentHealth() {
-  const response = await fetch(endpoint(agentBase, '/health'), { cache: 'no-store',
-    signal: AbortSignal.timeout(10_000) })
+  const response = await fetchReadOnly(endpoint(agentBase, '/health'), { cache: 'no-store' }, 10_000)
   const health = await readResponse<{ ok: true; service: string;
     features?: { tessera?: boolean; tessera_worlds?: boolean; tessera_missions?: boolean };
     contracts?: { tessera_runs?: number } }>(response)
@@ -265,9 +274,7 @@ export async function getTesseraAgentHealth() {
 
 export async function getTesseraCanvas(canvasId = 'main') {
   const path = canvasId === 'main' ? '/v1/canvas' : `/v1/canvas/${encodeURIComponent(canvasId)}`
-  const response = await fetch(endpoint(apiBase, path), {
-    cache: 'no-store', signal: AbortSignal.timeout(15_000),
-  })
+  const response = await fetchReadOnly(endpoint(apiBase, path), { cache: 'no-store' }, 15_000)
   return normalizeTesseraCanvas(await readResponse<TesseraCanvas>(response))
 }
 
@@ -312,9 +319,7 @@ export function subscribeTesseraCanvas(canvasId: string, handlers: {
 }
 
 export async function getTesseraCanvases() {
-  const response = await fetch(endpoint(apiBase, '/v1/canvases'), {
-    cache: 'no-store', signal: AbortSignal.timeout(15_000),
-  })
+  const response = await fetchReadOnly(endpoint(apiBase, '/v1/canvases'), { cache: 'no-store' }, 15_000)
   const value = await readResponse<{ canvases: TesseraCanvasSummary[] }>(response)
   return Array.isArray(value.canvases) ? value.canvases.map((canvas) => ({ ...canvas,
     location: canvas.location ?? { latitude: 19.076, longitude: 72.8777 } })) : []

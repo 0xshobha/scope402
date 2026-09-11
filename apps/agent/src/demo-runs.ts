@@ -187,6 +187,17 @@ export class DemoRunService {
     return structuredClone(this.authorized(runId, token).public)
   }
 
+  cancel(runId: string, token: string) {
+    const run = this.authorized(runId, token)
+    if (run.paymentAttempted || run.public.state !== 'PAYMENT_REQUIRED') {
+      throw new DemoRunError('DEMO_RUN_NOT_CANCELLABLE', 409,
+        'Only an unpaid quote can be cancelled')
+    }
+    this.runs.delete(runId)
+    this.hostedGuard.releaseRun(runId, true)
+    return { cancelled: true as const, run_id: runId }
+  }
+
   approve(runId: string, token: string) {
     const run = this.authorized(runId, token)
     if (run.public.state === 'COMPLETE') return Promise.resolve(structuredClone(run.public))

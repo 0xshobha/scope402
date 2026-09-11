@@ -27,7 +27,7 @@ export function createDemoAgentApp(service: DemoRunService, allowedOrigins: Set<
   app.use('*', cors({
     origin: (origin) => allowedOrigins.has(origin) ? origin : '',
     allowHeaders: ['Authorization', 'Content-Type'],
-    allowMethods: ['GET', 'POST', 'OPTIONS'],
+    allowMethods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
     maxAge: 600,
   }))
   app.use('/demo/*', bodyLimit({ maxSize: 2_048 }))
@@ -68,6 +68,13 @@ export function createDemoAgentApp(service: DemoRunService, allowedOrigins: Set<
   app.get('/demo/runs/:runId', (c) => {
     try {
       return c.json(service.get(c.req.param('runId'), bearer(c.req.header('Authorization'))))
+    } catch (error) {
+      return demoError(c, error)
+    }
+  })
+  app.delete('/demo/runs/:runId', (c) => {
+    try {
+      return c.json(service.cancel(c.req.param('runId'), bearer(c.req.header('Authorization'))))
     } catch (error) {
       return demoError(c, error)
     }
@@ -147,6 +154,14 @@ export function createDemoAgentApp(service: DemoRunService, allowedOrigins: Set<
     try {
       if (!tessera) throw new DemoRunError('TESSERA_UNAVAILABLE', 404, 'Tessera agent is not configured')
       return c.json(tessera.get(c.req.param('runId'), bearer(c.req.header('Authorization'))))
+    } catch (error) {
+      return demoError(c, error)
+    }
+  })
+  app.delete('/tessera/runs/:runId', (c) => {
+    try {
+      if (!tessera) throw new DemoRunError('TESSERA_UNAVAILABLE', 404, 'Tessera agent is not configured')
+      return c.json(tessera.cancel(c.req.param('runId'), bearer(c.req.header('Authorization'))))
     } catch (error) {
       return demoError(c, error)
     }

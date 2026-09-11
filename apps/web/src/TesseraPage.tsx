@@ -1,16 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
-  approveTesseraRun, createTesseraRun, executeTesseraAction, getTesseraAgentHealth,
+  approveTesseraRun, cancelTesseraRun, createTesseraRun, executeTesseraAction, getTesseraAgentHealth,
   getTesseraCanvas, getTesseraCanvases, getTesseraRun, paintTesseraPixel, runTesseraMission,
   publicTesseraAgentUrl, publicTesseraApiUrl, subscribeTesseraCanvas,
   type CanvasRegion, type TesseraActionName, type TesseraActionResult,
   type TesseraCanvas, type TesseraCanvasSummary, type TesseraCapability, type TesseraLocation, type TesseraRun,
 } from './tessera-api.js'
 import { TesseraWorldMap } from './TesseraWorldMap.js'
+import { mirrorTransactionUrl } from './hedera-proof.js'
 
 const storedRunId = 'scope402-tessera-run-id'
 const storedRunToken = 'scope402-tessera-run-token'
 const storedCanvasId = 'scope402-tessera-canvas-id'
+const storedAuditRunId = 'scope402-demo-run-id'
 const canvasIdPattern = /^[a-z0-9](?:[a-z0-9-]{1,30}[a-z0-9])?$/
 
 function initialCanvasId() {
@@ -128,8 +130,8 @@ function PurchaseProof({ run }: { run?: TesseraRun }) {
     <div className={`settlement-proof ${payment ? 'settled' : ''}`}>
       <span className="mono">{payment ? `${payment.amount_tinybars} TINYBARS SETTLED` :
         quote ? 'NOT PAID · YOUR APPROVAL IS REQUIRED' : 'START TO SEE THE PRICE AND LIMITS'}</span>
-      {payment && <a className="button" href={payment.hashscan_url} target="_blank" rel="noreferrer">
-        VERIFY ON HASHSCAN ↗</a>}
+      {payment && <div><a className="button" href={mirrorTransactionUrl(payment.transaction)} target="_blank" rel="noreferrer">
+        MIRROR NODE PROOF ↗</a><a href={payment.hashscan_url} target="_blank" rel="noreferrer">HASHSCAN ↗</a></div>}
     </div>
   </section>
 }
@@ -169,7 +171,7 @@ function LiveProofLog({ run }: { run?: TesseraRun }) {
     status: '402', code: 'TERMS PREPARED', tone: 'pending',
     detail: `${run.quote.canvas_id} · ${regionLabel(run.quote.region)} · ${run.quote.pricing.total_tinybars} tinybars · ${short(run.quote.policy_hash, 11, 6)}` })
   if (run?.payment) events.push({ key: 'payment', time: 'CHAIN', actor: 'HEDERA', status: '200',
-    code: 'PAYMENT SETTLED', tone: 'allowed', href: run.payment.hashscan_url,
+    code: 'PAYMENT SETTLED', tone: 'allowed', href: mirrorTransactionUrl(run.payment.transaction),
     detail: `${run.payment.amount_tinybars} tinybars · ${short(run.payment.transaction, 12, 8)}` })
   if (run?.root) events.push({ key: 'root', time: 'SERVER', actor: 'PRINCIPAL A', status: '201',
     code: 'ROOT CAPABILITY', tone: 'allowed',
@@ -218,7 +220,7 @@ function CanvasPanel({ canvas, run, action, selected, onSelect, selectedSlot, on
   previewWorld?: { canvas_id: string; name: string }
   liveTransport: 'CONNECTING' | 'LIVE' | 'POLLING'
 }) {
-  const [zoom, setZoom] = useState(1)
+  const [zoom, setZoom] = useState(() => window.matchMedia('(max-width: 640px)').matches ? 4 : 1)
   const missionId = 'spark'
   const pixels = useMemo(() => new Map((canvas?.pixels ?? []).map((pixel) => [`${pixel.x}:${pixel.y}`, pixel])), [canvas])
   const root = run?.root?.resource
@@ -348,7 +350,8 @@ function CanvasPanel({ canvas, run, action, selected, onSelect, selectedSlot, on
           {canvas.recent_activity.length ? <ol>{canvas.recent_activity.slice(0, 5).map((entry) =>
             <li key={`${entry.x}:${entry.y}:${entry.painted_at}:${entry.counter}`}><span><i style={{ backgroundColor: entry.color }} />
               <code>{entry.x},{entry.y}</code></span><code>{entry.agent}</code></li>)}</ol> :
-          <p>No committed activity yet.</p>}</div></div>
+          <p>{canvas.pixels.length ? `${canvas.pixels.length} historical pixels predate the activity log.` :
+            'No committed activity yet.'}</p>}</div></div>
     </div>}
     {action && <div className={`tessera-action-result ${action.verdict.toLowerCase()}`} role="status">
       <strong className="mono">{action.status} · {action.code}</strong><span>{action.message}</span>
@@ -442,6 +445,18 @@ export function TesseraPage() {
     setError('')
     setSelectedPixel(undefined)
     setSelectedSlot(undefined)
+  }
+
+  const cancelRun = async () => {
+    if (!runId || !token || run?.state !== 'PAYMENT_REQUIRED' || busy) return
+    setBusy(true); setError('')
+    try {
+      await cancelTesseraRun(runId, token)
+      resetRun()
+      await Promise.resolve(getTesseraCanvas(canvasId)).then(setCanvas).catch(() => undefined)
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Could not cancel the unpaid quote')
+    } finally { setBusy(false) }
   }
 
   const refresh = async (id = runId, credential = token) => {
@@ -703,6 +718,10 @@ export function TesseraPage() {
               'SELECT A TERRITORY BELOW' : `SEE TERMS FOR TERRITORY ${selectedSlot + 1}`}</button>
           {runId && (state === 'MISSION_COMPLETE' || state === 'COMPLETE' || state === 'FAILED' || error.includes('DEMO_RUN_EXPIRED')) &&
             <button className="button" type="button" onClick={resetRun}>START NEW RUN</button>}
+          {run?.state === 'PAYMENT_REQUIRED' && <button className="button" type="button"
+            disabled={busy} onClick={() => void cancelRun()}>CANCEL UNPAID QUOTE</button>}
+          {error.startsWith('DEMO_RUN_ACTIVE') && window.sessionStorage.getItem(storedAuditRunId) &&
+            <a className="button" href="/demo">RETURN TO ACTIVE REPOSITORY RUN</a>}
           <a className="button" href={`${publicTesseraApiUrl}/v1/canvas${canvasId === 'main' ? '' :
             `/${encodeURIComponent(canvasId)}`}`} target="_blank" rel="noreferrer">READ THIS WORLD ↗</a></div>
         <p className="tessera-boundary mono">DEMO AGENT PAYS ON TESTNET · PRIVATE KEYS NEVER ENTER THIS PAGE</p></div></section>

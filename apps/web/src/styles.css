@@ -237,6 +237,8 @@ footer a:hover { color: var(--violet); }
 .demo-error { margin-top: 24px; padding: 15px; border: 1.5px solid var(--ink); background: var(--red); }
 .demo-error strong { display: block; margin-bottom: 9px; font-size: 13px; }
 .demo-error code { font: 600 12px/1.5 "JetBrains Mono Variable", monospace; overflow-wrap: anywhere; }
+.demo-error .button { width: fit-content; margin-top: 12px; background: var(--paper); color: var(--ink); }
+.cancel-quote { width: 100%; margin-top: 10px; }
 .quote-panel { background: var(--amber); }
 .quote-panel:not(.visible) { background: #dfdcd4; }
 .empty-quote { height: 100%; display: grid; place-content: center; text-align: center; }
@@ -338,6 +340,8 @@ footer a:hover { color: var(--violet); }
   gap: 18px; background: var(--amber); }
 .settlement-proof.settled { background: var(--cyan); }
 .settlement-proof > span { font-size: 13px; font-weight: 700; }
+.settlement-proof > div { display: flex; align-items: center; gap: 12px; }
+.settlement-proof > div > a:not(.button) { color: var(--ink); font-size: 12px; font-weight: 800; }
 .mission-intent { display: grid; grid-template-columns: 1.25fr .75fr; gap: clamp(24px, 5vw, 72px);
   margin-top: 34px; padding: clamp(26px, 4vw, 46px); border-radius: 24px; background: #11131a;
   color: #f5f2ea; box-shadow: 0 20px 60px rgba(11, 11, 12, .14); }
@@ -655,6 +659,7 @@ footer a:hover { color: var(--violet); }
   .purchase-proof-grid { grid-template-columns: 1fr; }
   .purchase-proof-grid > div { border-right: 0; }
   .settlement-proof { align-items: flex-start; flex-direction: column; }
+  .settlement-proof > div { width: 100%; align-items: stretch; flex-direction: column; }
   .tessera-action-grid { display: grid; grid-template-columns: 1fr; }
   .tessera-action-grid .button { width: 100%; justify-content: center; }
   .paint-selection { align-items: stretch; flex-direction: column; }
