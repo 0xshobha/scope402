@@ -11,15 +11,16 @@ function worldBounds(location: TesseraLocation): L.LatLngBoundsLiteral {
 }
 
 export function TesseraWorldMap({ canvases, selectedId, canvas, draftLocation, locked,
-  onChooseWorld, onChooseLocation }: { canvases: TesseraCanvasSummary[]; selectedId: string;
+  selectedSlot, onChooseWorld, onChooseLocation, onChooseTerritory }: { canvases: TesseraCanvasSummary[]; selectedId: string;
     canvas?: TesseraCanvas; draftLocation: TesseraLocation; locked: boolean;
-    onChooseWorld(id: string): void; onChooseLocation(location: TesseraLocation): void }) {
+    selectedSlot?: number; onChooseWorld(id: string): void; onChooseLocation(location: TesseraLocation): void;
+    onChooseTerritory(slot: number): void }) {
   const container = useRef<HTMLDivElement>(null)
   const map = useRef<L.Map | null>(null)
   const layers = useRef<L.LayerGroup | null>(null)
   const focusedWorld = useRef('')
-  const interaction = useRef({ canvases, selectedId, locked, onChooseLocation, onChooseWorld })
-  interaction.current = { canvases, selectedId, locked, onChooseLocation, onChooseWorld }
+  const interaction = useRef({ canvases, selectedId, locked, onChooseLocation, onChooseWorld, onChooseTerritory })
+  interaction.current = { canvases, selectedId, locked, onChooseLocation, onChooseWorld, onChooseTerritory }
 
   useEffect(() => {
     if (!container.current || map.current) return
@@ -55,11 +56,23 @@ export function TesseraWorldMap({ canvases, selectedId, canvas, draftLocation, l
     const bounds = L.latLngBounds(worldBounds(location))
     L.rectangle(bounds, { color: '#c6f432', weight: 3, fillColor: '#7c4dff', fillOpacity: 0.12 }).addTo(group)
     for (let row = 0; row < 4; row += 1) for (let column = 0; column < 4; column += 1) {
+      const slot = row * 4 + column
       const south = bounds.getSouth() + row * WORLD_SPAN / 4
       const west = bounds.getWest() + column * WORLD_SPAN / 4
-      L.rectangle([[south, west], [south + WORLD_SPAN / 4, west + WORLD_SPAN / 4]], {
-        color: '#ffffff', weight: 1, opacity: 0.55, fillOpacity: 0,
-      }).addTo(group)
+      const active = canvas?.regions.find((region) => region.slot === slot && region.active)
+      const reserved = canvas?.reservations.find((region) => region.slot === slot)
+      const available = !active && !reserved
+      const territory = L.rectangle([[south, west], [south + WORLD_SPAN / 4, west + WORLD_SPAN / 4]], {
+        color: slot === selectedSlot ? '#ffb020' : '#ffffff', weight: slot === selectedSlot ? 4 : 1,
+        opacity: slot === selectedSlot ? 1 : 0.7,
+        fillColor: active ? '#7c4dff' : reserved ? '#ffb020' : '#c6f432',
+        fillOpacity: slot === selectedSlot ? 0.38 : available ? 0.12 : 0.24,
+      }).bindTooltip(`Territory ${slot + 1} · ${active ? 'claimed' : reserved ? 'reserved' : 'available'}`)
+      if (available && !locked) territory.on('click', (event) => {
+        L.DomEvent.stopPropagation(event.originalEvent)
+        interaction.current.onChooseTerritory(slot)
+      })
+      territory.addTo(group)
     }
     for (const pixel of canvas?.pixels ?? []) {
       const cell = WORLD_SPAN / 32
@@ -79,13 +92,13 @@ export function TesseraWorldMap({ canvases, selectedId, canvas, draftLocation, l
       focusedWorld.current = focusKey
     }
     window.setTimeout(() => instance.invalidateSize(), 0)
-  }, [canvas, canvases, draftLocation, selectedId])
+  }, [canvas, canvases, draftLocation, selectedId, selectedSlot])
 
   return <section className="geo-world" aria-label="Geographic Tessera world map">
     <div className="geo-world-head"><div><span className="section-label">REAL-WORLD MAP</span>
       <h2>Choose where agents paint.</h2></div>
       <p>{canvases.some((item) => item.canvas_id === selectedId) ?
-        'This marker is a persistent server world. Zoom and pan to inspect it.' :
+        'Zoom, pan, and click a green territory to inspect its payment terms. Claimed land is violet; reservations are amber.' :
         'Click anywhere on the map to anchor this new world before preparing its first quote.'}</p></div>
     <div ref={container} className="geo-map" />
     <div className="geo-location mono"><span>SELECTED WORLD · {selectedId}</span>

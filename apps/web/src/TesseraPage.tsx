@@ -134,6 +134,28 @@ function PurchaseProof({ run }: { run?: TesseraRun }) {
   </section>
 }
 
+function MissionReceipt({ run }: { run?: TesseraRun }) {
+  const mission = run?.mission
+  const receipt = mission?.receipt
+  const painted = mission?.events.filter((event) => event.code === 'PIXEL_PLACED').length ?? 0
+  const boundary = mission?.events.some((event) => event.code === 'OUT_OF_SCOPE') ?? false
+  return <section className={`mission-receipt ${mission?.state.toLowerCase() ?? 'waiting'}`}
+    aria-label="Autonomous mission progress and receipt">
+    <div className="mission-receipt-head"><div><span className="section-label">MISSION RECEIPT</span>
+      <h2>{mission?.state === 'COMPLETE' ? 'Signal built.' : mission?.state === 'RUNNING' ?
+        'Agents are building.' : 'Ready after approval.'}</h2></div>
+      <strong className="mono">{mission?.state ?? 'WAITING'}</strong></div>
+    <div className="mission-score mono"><span>{painted} / {mission?.plan.requiredCalls ?? 9} PIXELS</span>
+      <span>{boundary ? 'BOUNDARY ENFORCED' : 'BOUNDARY PENDING'}</span></div>
+    <div className="mission-handoff"><div><small>PRINCIPAL</small><strong>5 amber pixels</strong></div>
+      <b>→ 4 CALLS →</b><div><small>WORKER</small><strong>4 violet pixels</strong></div></div>
+    {receipt && <dl><div><dt>PAYMENT</dt><dd className="mono">{short(receipt.payment_transaction, 13, 8)}</dd></div>
+      <div><dt>ROOT</dt><dd className="mono">{short(receipt.root_lease_id, 13, 8)}</dd></div>
+      <div><dt>WORKER</dt><dd className="mono">{short(receipt.worker_lease_id, 13, 8)}</dd></div>
+      <div><dt>RESULT</dt><dd>{receipt.pixels_placed} pixels · 1 denial</dd></div></dl>}
+  </section>
+}
+
 function eventTime(value: string | number | undefined) {
   if (value === undefined) return '—'
   const date = new Date(typeof value === 'number' ? value * 1_000 : value)
@@ -690,6 +712,11 @@ export function TesseraPage() {
       <div><small>POLICY HASH</small><strong className="mono">{short(run?.quote?.policy_hash ?? run?.root?.policy_hash, 14, 8)}</strong></div>
       <div><small>CANVAS</small><strong className="mono">{canvasHealth}</strong></div></div>
 
+    <TesseraWorldMap canvases={canvases} selectedId={canvasId} canvas={canvas}
+      draftLocation={canvas?.location ?? knownWorld?.location ?? worldLocation} locked={Boolean(runId)}
+      selectedSlot={selectedSlot} onChooseWorld={chooseWorld} onChooseLocation={setWorldLocation}
+      onChooseTerritory={(slot) => { setSelectedSlot(slot); setSelectedPixel(undefined) }} />
+
     <section className="mission-intent" aria-label="Signal Spark agent mission">
       <div><span className="section-label">MISSION · SIGNAL SPARK</span>
         <h2>Two agents. One paid territory. One finished mark.</h2>
@@ -722,10 +749,6 @@ export function TesseraPage() {
       </div>
     </section>
 
-    <TesseraWorldMap canvases={canvases} selectedId={canvasId} canvas={canvas}
-      draftLocation={canvas?.location ?? knownWorld?.location ?? worldLocation} locked={Boolean(runId)}
-      onChooseWorld={chooseWorld} onChooseLocation={setWorldLocation} />
-
     <div className="tessera-main-grid"><CanvasPanel canvas={canvas} run={run} action={action}
       selected={selectedPixel} onSelect={(x, y) => setSelectedPixel({ x, y })}
       selectedSlot={selectedSlot} onSlotSelect={setSelectedSlot}
@@ -737,6 +760,7 @@ export function TesseraPage() {
         (!childReady && (run?.root?.remaining_calls ?? 0) <= 1) || (run?.root?.remaining_calls ?? 0) < 1} />
       <aside className="tessera-proof-stack" aria-label="Purchase and capability proof">
         <PurchaseProof run={run} />
+        <MissionReceipt run={run} />
         <ProofControls state={state} missionState={run?.mission.state ?? 'PLANNED'} busy={busy}
           rootReady={rootReady} childReady={childReady}
           completed={completed} error={error} onApprove={() => void approve()}
