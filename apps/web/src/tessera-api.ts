@@ -238,7 +238,10 @@ export async function getTesseraCanvas(canvasId = 'main') {
   const response = await fetch(endpoint(apiBase, path), {
     cache: 'no-store', signal: AbortSignal.timeout(15_000),
   })
-  const canvas = await readResponse<TesseraCanvas>(response)
+  return normalizeTesseraCanvas(await readResponse<TesseraCanvas>(response))
+}
+
+function normalizeTesseraCanvas(canvas: TesseraCanvas) {
   const painted = Array.isArray(canvas.pixels) ? canvas.pixels.length : 0
   const world = canvas.world
   return { ...canvas,
@@ -254,6 +257,28 @@ export async function getTesseraCanvas(canvasId = 'main') {
     leaderboard: Array.isArray(canvas.leaderboard) ? canvas.leaderboard : [],
     recent_activity: Array.isArray(canvas.recent_activity) ? canvas.recent_activity : [],
     reservations: Array.isArray(canvas.reservations) ? canvas.reservations : [] }
+}
+
+export function subscribeTesseraCanvas(canvasId: string, handlers: {
+  onCanvas(canvas: TesseraCanvas): void
+  onStatus(status: 'CONNECTING' | 'LIVE' | 'RECONNECTING'): void
+}) {
+  const path = canvasId === 'main' ? '/v1/canvas/events' :
+    `/v1/canvas/${encodeURIComponent(canvasId)}/events`
+  const source = new EventSource(endpoint(apiBase, path))
+  handlers.onStatus('CONNECTING')
+  source.addEventListener('open', () => handlers.onStatus('LIVE'))
+  source.addEventListener('world', (event) => {
+    try {
+      const canvas = JSON.parse((event as MessageEvent<string>).data) as TesseraCanvas
+      if (canvas.canvas_id !== canvasId || canvas.width !== 32 || canvas.height !== 32 ||
+          !Array.isArray(canvas.pixels) || !Array.isArray(canvas.regions)) return
+      handlers.onCanvas(normalizeTesseraCanvas(canvas))
+      handlers.onStatus('LIVE')
+    } catch { /* EventSource reconnect and fallback polling preserve the last valid world. */ }
+  })
+  source.addEventListener('error', () => handlers.onStatus('RECONNECTING'))
+  return () => source.close()
 }
 
 export async function getTesseraCanvases() {

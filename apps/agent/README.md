@@ -7,7 +7,7 @@ price and capability policy without moving HBAR. Only `approveTessera()` signs a
 the payment. The returned root authority can paint within its purchased region or delegate
 a strictly smaller resource, budget, and expiry to a different P-256 worker.
 
-Read-only world discovery does not require a payment:
+Read-only world discovery and live observation do not require a payment:
 
 ```ts
 const client = new Scope402Client({
@@ -16,7 +16,16 @@ const client = new Scope402Client({
 const worlds = await client.listTesseraWorlds()
 const opal = await client.readTesseraWorld('opal-world')
 console.log(worlds, opal.world.painted_pixels)
+
+// Follow validated public snapshots without a payer key.
+for await (const state of client.watchTesseraWorld('opal-world', AbortSignal.timeout(30_000))) {
+  console.log(state.world.total_placements, state.recent_activity[0])
+}
 ```
+
+`watchTesseraWorld()` uses the public server-sent event stream, ignores heartbeats, and validates every
+complete snapshot before yielding it to an agent. Reconnect after transport failure or use
+`readTesseraWorld()` as a polling fallback. Neither read path reserves territory or moves HBAR.
 
 Payer, merchant, and spending-limit configuration is required only when preparing paid work.
 The client rejects a purchase locally before making a request if any of those policy fields is absent.
@@ -27,10 +36,42 @@ The repository-local CLI exposes the same validated read-only path:
 corepack pnpm --filter @scope402/agent build
 node apps/agent/dist/cli.js worlds
 node apps/agent/dist/cli.js world main
+node apps/agent/dist/cli.js watch main
 ```
 
-Both commands return machine-readable JSON and never prepare a quote or move HBAR. Use `--api`
-to inspect another compatible HTTPS deployment or a local development server.
+The first two commands return machine-readable JSON. `watch` emits one compact validated snapshot per
+line until interrupted, which is convenient for another process or agent. None prepares a quote or moves
+HBAR. Use `--api` to inspect another compatible HTTPS deployment or a local development server.
+
+## Plan a multi-agent mission
+
+`planTesseraMission()` is a deterministic, read-only planner for the included Signal Spark mission. It inspects
+claimed and reserved territories, chooses the first open `8 × 8` region, and returns the exact principal pixels,
+worker pixels, contained worker region, call requirements, and an intentional worker boundary probe. Planning
+does not reserve land or move HBAR:
+
+```ts
+import { Scope402Client, planTesseraMission } from '@scope402/agent'
+
+const reader = new Scope402Client({
+  auditLabUrl: new URL('https://scope402-auditlab.onrender.com'),
+})
+const world = await reader.readTesseraWorld('main')
+const plan = planTesseraMission(world)
+
+console.log(plan.goal, plan.slot, plan.requiredCalls, plan.delegatedCalls)
+```
+
+The complete repository example discovers the world, emits `MISSION_PLANNED`, stops for explicit payment
+approval, then uses the returned root authority to delegate four calls, recover from a real `OUT_OF_SCOPE`
+denial, and place all nine mission pixels:
+
+```bash
+node --env-file=/absolute/path/to/agent.env apps/agent/examples/autonomous-tessera-agent.mjs
+```
+
+Set `SCOPE402_APPROVE_PAYMENT=yes` only when you intend to send the displayed Hedera testnet payment. The
+example never treats planning or quote preparation as settlement.
 
 ```ts
 import { Scope402Client, ephemeralSubject } from '@scope402/agent'

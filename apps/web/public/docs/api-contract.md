@@ -1,6 +1,6 @@
 # Scope402 HTTP and signing contract
 
-Contract snapshot: 10 September 2026. x402 v2; Scope402 extension `info.version = 1`; discovery `version = 1`. These are different version fields. This document describes the implemented reference API, not a platform-wide SDK guarantee.
+Contract snapshot: 11 September 2026. x402 v2; Scope402 extension `info.version = 1`; discovery `version = 1`. These are different version fields. This document describes the implemented reference API, not a platform-wide SDK guarantee.
 
 Base URL: `https://scope402-auditlab.onrender.com`. Use HTTPS for remote clients. Documentation and [Tessera OpenAPI](https://scope402.onrender.com/openapi.json) live on the separate website origin. The OpenAPI file covers Tessera and public metadata, not hosted-agent administration or AuditLab schemas.
 
@@ -11,7 +11,9 @@ Base URL: `https://scope402-auditlab.onrender.com`. Use HTTPS for remote clients
 | `GET /health` | `{ "ok": true, "service": "auditlab" }`; process health only |
 | `GET /.well-known/scope402` | Known-origin resource and tool metadata |
 | `GET /v1/canvas` | Canvas dimensions, palette, persisted pixels and root regions |
+| `GET /v1/canvas/events` | Default-world snapshots as named `world` server-sent events |
 | `GET /v1/canvas/{canvas_id}` | One named world's server-authoritative state, activity and contributor ranking |
+| `GET /v1/canvas/{canvas_id}/events` | Named-world snapshots as named `world` server-sent events |
 | `GET /v1/canvases` | Public world catalogue; does not reserve or pay |
 | `POST /v1/plots` | `{ "canvas_id": "<safe-world-slug>", "subject_pubkey": "<SPKI key>", "slot"?: 0..15 }`; no other properties |
 | `POST /v1/scans` | `{ "repo_url": "https://github.com/owner/repository", "subject_pubkey": "<SPKI key>" }` |
@@ -20,6 +22,12 @@ Base URL: `https://scope402-auditlab.onrender.com`. Use HTTPS for remote clients
 | `POST /v1/leases/{lease_id}/delegations` | `{ "lease": "<root lease JWS>", "delegation": "<parent-signed JWS>" }`; Tessera only |
 
 All POST bodies are JSON. Purchase requests are limited to 4,096 bytes; invocation/delegation requests to 32,768 bytes. A size-limit response can be HTTP 413 plain text, not the JSON error envelope. Public read routes permit cross-origin GETs. Direct paid/signed routes are for server-side clients; no arbitrary-origin browser CORS support is promised.
+
+The SSE routes emit the complete `Canvas` JSON object as a named `world` event on connection and whenever the
+authoritative snapshot changes. They send a heartbeat during quiet periods and advertise a five-second reconnect.
+Clients should retain the last valid snapshot and recover through the corresponding JSON GET route if streaming is
+unavailable. The stream contains public world state only—never payment headers, lease tokens, private keys, or signed
+invocations. It is a bounded reference transport, not a WebSocket-scale or on-chain state guarantee.
 
 `subject_pubkey` is a base64url-encoded DER SPKI P-256 public key (Node curve `prime256v1`), **not** a PEM string, JWK, address, fingerprint, or private key. Payer identity and subject identity are separate.
 

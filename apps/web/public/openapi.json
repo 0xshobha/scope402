@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Scope402 Tessera API",
-    "version": "2026-09-10",
+    "version": "2026-09-11",
     "description": "Tessera named worlds, territory purchase, invocation and one-level delegation, plus public metadata. AuditLab purchase schemas and hosted-agent routes are outside this document. Requests require x402 payment or body-carried signed capabilities as described per operation. OpenAPI client generation does not implement Scope402 signing or policy verification."
   },
   "servers": [{ "url": "https://scope402-auditlab.onrender.com" }],
@@ -57,6 +57,16 @@
         }
       }
     },
+    "/v1/canvas/events": {
+      "get": {
+        "operationId": "streamCanvas",
+        "summary": "Stream change-only default-world snapshots as server-sent events",
+        "responses": {
+          "200": { "description": "Named world events containing complete Canvas JSON snapshots", "content": { "text/event-stream": { "schema": { "type": "string" } } } },
+          "503": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
     "/v1/canvas/{canvas_id}": {
       "get": {
         "operationId": "getCanvasById",
@@ -64,6 +74,18 @@
         "parameters": [{ "name": "canvas_id", "in": "path", "required": true, "schema": { "$ref": "#/components/schemas/CanvasId" } }],
         "responses": {
           "200": { "description": "Named canvas state", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Canvas" } } } },
+          "404": { "$ref": "#/components/responses/Error" },
+          "503": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/v1/canvas/{canvas_id}/events": {
+      "get": {
+        "operationId": "streamCanvasById",
+        "summary": "Stream change-only named-world snapshots as server-sent events",
+        "parameters": [{ "name": "canvas_id", "in": "path", "required": true, "schema": { "$ref": "#/components/schemas/CanvasId" } }],
+        "responses": {
+          "200": { "description": "Named world events containing complete Canvas JSON snapshots", "content": { "text/event-stream": { "schema": { "type": "string" } } } },
           "404": { "$ref": "#/components/responses/Error" },
           "503": { "$ref": "#/components/responses/Error" }
         }

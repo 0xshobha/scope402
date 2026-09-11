@@ -32,6 +32,25 @@ test('CLI reads and validates one named world', async () => {
   assert.equal(JSON.parse(output[0]!).canvas_id, 'agent-garden')
 })
 
+test('CLI watches validated world snapshots as newline-delimited JSON', async () => {
+  const output: string[] = []
+  const encoder = new TextEncoder()
+  const snapshot = { ...world, palette: ['#7C4DFF'],
+    world: { name: 'Opal World', painted_pixels: 0, total_placements: 0,
+      total_pixels: 1024, completion_percent: 0, current_painters: 0,
+      active_territories: 0, reserved_territories: 0 }, pixels: [], regions: [],
+    reservations: [], leaderboard: [], recent_activity: [] }
+  const request = async () => new Response(new ReadableStream({ start(controller) {
+    controller.enqueue(encoder.encode(`event: world\ndata: ${JSON.stringify(snapshot)}\n\n`))
+    controller.close()
+  } }), { headers: { 'Content-Type': 'text/event-stream' } })
+  const result = await runCli(['watch', 'main'], (value) => output.push(value),
+    () => undefined, request as typeof fetch)
+  assert.equal(result, 0)
+  assert.equal(output.length, 1)
+  assert.equal(JSON.parse(output[0]!).canvas_id, 'main')
+})
+
 test('CLI rejects unsafe remote HTTP and invalid commands before network access', async () => {
   let calls = 0
   const output: string[] = []

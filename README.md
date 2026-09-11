@@ -41,13 +41,15 @@ The browser is an inspection and control surface, not a wallet. A visitor can:
 6. place an allowed pixel and run fixed outside-region, wrong-key, replay, and expiry probes; and
 7. refresh without paying twice while the hosted run still exists.
 
-The current local checkout also adds an interactive Tessera world layer: visitors can choose or name a shared
+The current checkout includes an interactive Tessera world layer: visitors can choose or name a shared
 `32 × 32` world, copy its URL, select one of sixteen `8 × 8` territories, choose a collaborative pixel mission,
 paint with a server-approved palette, and inspect live territory status, contributors, and recent activity.
-Visible tabs refresh the shared PostgreSQL-backed world every three seconds and background tabs back off to ten;
-this is bounded polling, not a WebSocket or on-chain pixel-state claim.
-Those multi-world and mission features are **local next-release work until deployed**; the public URL above
-continues to be the source of truth for what judges can use today.
+The browser receives changed server-authoritative world snapshots over a bounded SSE stream and automatically
+falls back to slower polling if the stream is interrupted. This is not a WebSocket-scale real-time system or an
+on-chain pixel-state claim.
+Until this release is deployed, the public URL above remains the source of truth for what judges can use today.
+The public-proof section separately identifies flows that completed real testnet settlement rather than treating
+code or deployment as payment evidence.
 
 ### Interactions and evidence
 
@@ -186,6 +188,8 @@ charging for every call or exposing a broad bearer credential:
   payment lineage, separate delegation replay counters, and conserved parent/child budgets
 - guarded Tessera browser orchestration with prepare-before-pay approval, refresh recovery, and fixed
   server-generated delegation and attack actions
+- a persisted browser proof log that shows the quote, settlement, issued authority, delegation, allowed pixels,
+  and every denial from hosted-agent state, with direct HashScan verification for settled runs
 - player-selected Tessera pixels and palette colors signed by the guarded principal agent, with idempotent retries
   and server-enforced region and call-budget limits
 
@@ -201,14 +205,18 @@ paid runs that were exercised on Hedera rather than treating deployment alone as
 - explicit selection of one available `8 × 8` territory before quote creation
 - transactionally unique reservations with `AVAILABLE`, `RESERVED`, `CLAIMED`, and `OPEN AGAIN` states
 - local principal/worker canvas challenges whose targets remain inside the selected territory and count only
-  pixels owned by the required principal or delegated worker
+  pixels painted by the required principal or delegated worker in the challenge's required color
 - server-authoritative contributor ranking, recent activity, painted-pixel totals, and distinct pixel-owner counts
+- change-only server-sent world updates with a slower polling recovery path
 - world-bound quotes, policies, root capabilities, delegated capabilities, invocations, and pixels
 - synchronized discovery, OpenAPI, and agent quickstart coverage for named worlds and exact territory selection
-- a local TypeScript reference SDK for typed world discovery, world-state reads, prepare-before-pay purchases,
-  exact policy validation, root painting, strict worker attenuation, serialized counters, and idempotent agent retries
+- a local TypeScript reference SDK for typed world discovery, world-state reads, validated live world observation,
+  prepare-before-pay purchases, exact policy validation, root painting, strict worker attenuation, serialized
+  counters, and idempotent agent retries
 - a read-only CLI that lets another process list or inspect public worlds without Hedera credentials
 - a guarded autonomous-agent example that stops after showing the quote unless payment is explicitly enabled
+- a deterministic Signal Spark mission planner that chooses open land, divides nine useful pixels between a
+  principal and worker, calculates required and delegated calls, and identifies a natural worker boundary probe
 
 No wallet connection, ENS identity, HCS audit trail, free-form browser signing, or on-chain pixel storage is
 claimed. The canvas is stored in PostgreSQL; Hedera is the real payment rail.
@@ -223,8 +231,10 @@ claimed. The canvas is stored in PostgreSQL; Hedera is the real payment rail.
 | `POST` | `/v1/scans` | AuditLab x402 purchase and resumable scan fulfillment |
 | `POST` | `/v1/plots` | Tessera x402 territory purchase and root-capability fulfillment |
 | `GET` | `/v1/canvas` | Public server-authoritative default canvas |
-| `GET` | `/v1/canvas/:canvasId` | Public state for one named world in the current checkout |
-| `GET` | `/v1/canvases` | Public world catalogue in the current checkout |
+| `GET` | `/v1/canvas/events` | Live default-world snapshots over server-sent events |
+| `GET` | `/v1/canvas/:canvasId` | Public state for one implemented named world |
+| `GET` | `/v1/canvas/:canvasId/events` | Live named-world snapshots over server-sent events |
+| `GET` | `/v1/canvases` | Public implemented world catalogue |
 | `POST` | `/v1/leases/:leaseId/delegations` | Principal-signed Tessera attenuation |
 | `POST` | `/v1/tools/place_pixel` | Tessera capability-protected atomic pixel mutation |
 
@@ -238,10 +248,29 @@ After building, any external agent or operator can inspect the deployed world wi
 ```bash
 node apps/agent/dist/cli.js worlds
 node apps/agent/dist/cli.js world main
+node apps/agent/dist/cli.js watch main
 ```
 
-These commands validate the public response and emit machine-readable JSON. They never create a quote,
-reserve territory, or move HBAR.
+These commands validate the public response and emit machine-readable JSON; `watch` emits newline-delimited
+live snapshots until interrupted. They never create a quote, reserve territory, or move HBAR.
+
+SDK clients can also use `watchTesseraWorld(canvasId, signal)` to consume the public SSE feed. Every yielded
+snapshot is schema-checked before agent use; payment configuration is still required only for purchases and
+signed mutations.
+
+The reference agent can also turn current world state into an inspectable plan before it requests a quote:
+
+```ts
+const world = await client.readTesseraWorld('main')
+const plan = planTesseraMission(world)
+// open territory, exact principal/worker pixels, required calls, and worker boundary probe
+```
+
+The autonomous example emits a machine-readable sequence from `WORLD_DISCOVERED` and `MISSION_PLANNED` through
+`PAYMENT_APPROVAL_REQUIRED`. With explicit testnet payment approval, it continues through root issuance,
+four-call worker delegation, an enforced `OUT_OF_SCOPE` boundary, nine useful pixel placements, and
+`MISSION_COMPLETE`. This is deterministic orchestration around model- or human-supplied goals; no LLM is trusted
+to construct signatures, bypass quote validation, or approve spending.
 
 AuditLab exposes `finding_details`; Tessera exposes `place_pixel`. Both have public payment-to-denial proof,
 with exact transactions and outcomes recorded below.
@@ -338,8 +367,9 @@ node --env-file=/path/to/agent.env apps/agent/examples/autonomous-tessera-agent.
 
 It validates and prints the exact price, merchant, territory, and policy hash, then exits without moving HBAR.
 Only setting `SCOPE402_APPROVE_PAYMENT=yes` makes it approve the transaction, delegate a narrower worker
-capability, and place one worker pixel. The example emits structured `WORLD_DISCOVERED`,
-`PAYMENT_APPROVAL_REQUIRED`, `CAPABILITY_DELEGATED`, and `WORKER_PIXEL_PLACED` events so an agent log makes
+capability, enforce one natural worker boundary, and complete the nine-pixel principal/worker mission. The example emits structured `WORLD_DISCOVERED`,
+`MISSION_PLANNED`, `PAYMENT_APPROVAL_REQUIRED`, `CAPABILITY_DELEGATED`, `BOUNDARY_ENFORCED`, principal/worker
+pixel events, and `MISSION_COMPLETE` so an agent log makes
 the complete infrastructure path auditable. Use that switch only with your own funded testnet payer and reviewed terms.
 
 Run the browser app locally:

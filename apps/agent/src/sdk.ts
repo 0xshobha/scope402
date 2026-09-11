@@ -13,6 +13,8 @@ export { approveScanPurchase, prepareScanPurchase } from './purchase.js'
 export type { PreparedScan, ScanResult } from './purchase.js'
 export { discoverPlotResource, discoverScanResource } from './discovery.js'
 export { assertTesseraScope402Policy } from './policy.js'
+export { planTesseraMission } from './tessera-mission.js'
+export type { TesseraMissionPixel, TesseraMissionPlan, TesseraMissionWorld } from './tessera-mission.js'
 export { ephemeralSubject, persistentSubject } from './subject.js'
 export type { AgentPolicy, PayerConfig } from './purchase.js'
 export type { AgentSubject } from './subject.js'
@@ -221,6 +223,48 @@ function assertWorldState(value: unknown, expectedCanvasId: string): TesseraWorl
     throw new Error('Tessera returned an invalid world state')
   }
   return world as unknown as TesseraWorldState
+}
+
+async function* serverSentEvents(response: Response) {
+  if (!response.body || !response.headers.get('content-type')?.toLowerCase().startsWith('text/event-stream')) {
+    throw new Error('Tessera returned an invalid world event stream')
+  }
+  const reader = response.body.pipeThrough(new TextDecoderStream()).getReader()
+  let buffer = ''
+  try {
+    while (true) {
+      const { value, done } = await reader.read()
+      buffer += value ?? ''
+      const frames: string[] = []
+      let boundary = /\r\n\r\n|\n\n|\r\r/.exec(buffer)
+      while (boundary?.index !== undefined) {
+        frames.push(buffer.slice(0, boundary.index))
+        buffer = buffer.slice(boundary.index + boundary[0].length)
+        boundary = /\r\n\r\n|\n\n|\r\r/.exec(buffer)
+      }
+      for (const frame of frames) {
+        let event = 'message'
+        const data: string[] = []
+        for (const line of frame.split(/\r\n|\n|\r/)) {
+          if (line.startsWith(':')) continue
+          const separator = line.indexOf(':')
+          const field = separator === -1 ? line : line.slice(0, separator)
+          const raw = separator === -1 ? '' : line.slice(separator + 1)
+          const fieldValue = raw.startsWith(' ') ? raw.slice(1) : raw
+          if (field === 'event') event = fieldValue
+          if (field === 'data') data.push(fieldValue)
+        }
+        yield { event, data: data.join('\n') }
+      }
+      if (done) {
+        if (buffer.trim()) throw new Error('Tessera returned a truncated world event stream')
+        break
+      }
+    }
+  } finally {
+    await reader.cancel().catch(() => undefined)
+    reader.releaseLock()
+  }
 }
 
 function subjectFingerprint(subjectPubkey: string) {
@@ -539,6 +583,23 @@ export class Scope402Client {
     if (!response.ok) throw await scope402Error(response)
     const value = await response.json().catch(() => null) as unknown
     return assertWorldState(value, requestedCanvasId)
+  }
+
+  async *watchTesseraWorld(requestedCanvasId = 'main', signal?: AbortSignal) {
+    if (!canvasId(requestedCanvasId)) throw new Error('Tessera canvas ID is invalid')
+    const path = requestedCanvasId === 'main' ? '/v1/canvas/events' :
+      `/v1/canvas/${encodeURIComponent(requestedCanvasId)}/events`
+    const response = await this.request(new URL(path, this.config.auditLabUrl), {
+      headers: { Accept: 'text/event-stream' }, redirect: 'error', signal,
+    })
+    if (!response.ok) throw await scope402Error(response)
+    for await (const message of serverSentEvents(response)) {
+      if (message.event === 'heartbeat') continue
+      if (message.event === 'error') throw new Error('Tessera world event stream reported an error')
+      if (message.event !== 'world') continue
+      const value = message.data ? JSON.parse(message.data) as unknown : null
+      yield assertWorldState(value, requestedCanvasId)
+    }
   }
 
   prepareTessera(input: { subject: AgentSubject; canvasId?: string; slot?: number }) {

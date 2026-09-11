@@ -10,8 +10,10 @@ const usage = `Scope402 agent CLI
 Usage:
   scope402 worlds [--api <url>]
   scope402 world <canvas-id> [--api <url>]
+  scope402 watch <canvas-id> [--api <url>]
 
-These commands are read-only. They never create a quote or move HBAR.
+These commands are read-only. watch emits one compact JSON snapshot per line until interrupted.
+They never create a quote or move HBAR.
 The default API is https://scope402-auditlab.onrender.com.`
 
 function argumentsFor(argv: string[]) {
@@ -41,7 +43,9 @@ export async function runCli(argv: string[], output: Write = console.log,
       output(usage)
       return 0
     }
-    if (extra || (command === 'world' && !canvasId)) throw new Error('Invalid command arguments')
+    if (extra || ((command === 'world' || command === 'watch') && !canvasId)) {
+      throw new Error('Invalid command arguments')
+    }
     const client = new Scope402Client({ auditLabUrl: api }, request)
     if (command === 'worlds') {
       if (canvasId) throw new Error('worlds accepts no canvas ID')
@@ -50,6 +54,10 @@ export async function runCli(argv: string[], output: Write = console.log,
     }
     if (command === 'world') {
       output(JSON.stringify(await client.readTesseraWorld(canvasId!), null, 2))
+      return 0
+    }
+    if (command === 'watch') {
+      for await (const world of client.watchTesseraWorld(canvasId!)) output(JSON.stringify(world))
       return 0
     }
     throw new Error(`Unknown command: ${command}`)

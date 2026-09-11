@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { ephemeralSubject } from '../src/subject.js'
-import { Scope402Client, TesseraRootAuthority } from '../src/sdk.js'
+import { Scope402Client, TesseraRootAuthority, type TesseraWorldState } from '../src/sdk.js'
 import type { PreparedPlot, TesseraPlotResult } from '../src/tessera-purchase.js'
 
 const rootSubject = ephemeralSubject()
@@ -315,6 +315,48 @@ test('SDK discovers and reads validated shared Tessera worlds without payment', 
   assert.deepEqual(paths, ['/v1/canvases', '/v1/canvas/opal-world'])
   assert.equal(worlds[0]?.canvas_id, 'opal-world')
   assert.equal(world.pixels[0]?.color, '#7C4DFF')
+})
+
+test('SDK watches validated live world snapshots without payment configuration', async () => {
+  const first = { canvas_id: 'opal-world', width: 32, height: 32,
+    palette: ['#7C4DFF'], world: { name: 'Opal World', painted_pixels: 0,
+      total_placements: 0, total_pixels: 1024, completion_percent: 0,
+      current_painters: 0, active_territories: 0, reserved_territories: 0 },
+    pixels: [], regions: [], reservations: [], leaderboard: [], recent_activity: [] }
+  const second = { ...first, world: { ...first.world, painted_pixels: 1,
+    total_placements: 1, completion_percent: 0.1, current_painters: 1 },
+    pixels: [{ x: 2, y: 2, color: '#7C4DFF', updated_at: 1789000001,
+      agent: 'agent:123456789abc' }] }
+  let requestedPath = ''
+  let requestedAccept = ''
+  const request = async (input: string | URL | Request, init?: RequestInit) => {
+    requestedPath = new URL(String(input)).pathname
+    requestedAccept = new Headers(init?.headers).get('accept') ?? ''
+    const encoder = new TextEncoder()
+    return new Response(new ReadableStream({ start(controller) {
+      controller.enqueue(encoder.encode(`event: world\r\ndata: ${JSON.stringify(first)}\r\n\r`))
+      controller.enqueue(encoder.encode('\nevent: heartbeat\ndata: {"canvas_id":"opal-world"}\n\n'))
+      controller.enqueue(encoder.encode(`event: world\ndata: ${JSON.stringify(second)}\n\n`))
+      controller.close()
+    } }), { headers: { 'Content-Type': 'text/event-stream; charset=UTF-8' } })
+  }
+  const client = new Scope402Client({ auditLabUrl: new URL('https://merchant.example') },
+    request as typeof fetch)
+  const snapshots: TesseraWorldState[] = []
+  for await (const world of client.watchTesseraWorld('opal-world')) snapshots.push(world)
+  assert.equal(requestedPath, '/v1/canvas/opal-world/events')
+  assert.equal(requestedAccept, 'text/event-stream')
+  assert.deepEqual(snapshots.map((world) => world.pixels.length), [0, 1])
+})
+
+test('SDK rejects malformed live world snapshots before agent use', async () => {
+  const request = async () => new Response('event: world\ndata: {"canvas_id":"wrong"}\n\n',
+    { headers: { 'Content-Type': 'text/event-stream' } })
+  const client = new Scope402Client({ auditLabUrl: new URL('https://merchant.example') },
+    request as typeof fetch)
+  await assert.rejects(async () => {
+    for await (const _world of client.watchTesseraWorld('opal-world')) void _world
+  }, /invalid world/)
 })
 
 test('SDK rejects paid work locally when a read-only client has no payment policy', async () => {

@@ -17,4 +17,5 @@ Use your own server-side payer and P-256 subject keys for integration. The platf
 - [Service discovery](https://scope402-auditlab.onrender.com/.well-known/scope402): Known-origin routes and authorization metadata; not a global directory.
 - [API health](https://scope402-auditlab.onrender.com/health): API process health, not proof of facilitator or payment availability.
 - [Public canvas](https://scope402-auditlab.onrender.com/v1/canvas): Persisted pixels and root regions; existing pixels are not proof of a new run.
+- [Live canvas stream](https://scope402-auditlab.onrender.com/v1/canvas/events): Public server-sent world snapshots; no payment or capability secrets.
 - [Project README](https://raw.githubusercontent.com/0xshobha/scope402/main/README.md): Architecture, setup, evidence, and current limitations.

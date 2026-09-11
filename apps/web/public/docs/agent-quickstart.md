@@ -14,9 +14,14 @@ curl --fail --max-time 15 https://scope402-auditlab.onrender.com/health
 curl --fail --max-time 15 https://scope402-auditlab.onrender.com/.well-known/scope402
 curl --fail --max-time 15 https://scope402-auditlab.onrender.com/v1/canvas
 curl --fail --max-time 15 https://scope402-auditlab.onrender.com/v1/canvases
+# Optional live read: prints named world snapshots and heartbeats until the timeout.
+curl -N --fail --max-time 20 https://scope402-auditlab.onrender.com/v1/canvas/events
 ```
 
-These GET requests do not pay, reserve a plot, or grant authority. Discovery exposes routes at a known origin; it is not a directory listing. Health alone does not establish payment availability. The canvas can contain old pixels and expired regions.
+These GET requests do not pay, reserve a plot, or grant authority. The event stream carries the same public,
+server-authoritative canvas shape as the JSON endpoint and can be replaced with ordinary polling after a transport
+failure. Discovery exposes routes at a known origin; it is not a directory listing. Health alone does not establish
+payment availability. The canvas can contain old pixels and expired regions.
 
 Read the [API contract](https://scope402.onrender.com/docs/api-contract.md) and [Tessera OpenAPI](https://scope402.onrender.com/openapi.json) before implementing calls.
 
@@ -62,6 +67,17 @@ const selectedWorld = await reader.readTesseraWorld('main');
 console.log({ worlds, paintedPixels: selectedWorld.world.painted_pixels,
   activeTerritories: selectedWorld.world.active_territories });
 
+// Plan useful principal and worker work without reserving land or paying.
+const { planTesseraMission } = await import('./apps/agent/dist/sdk.js');
+const plan = planTesseraMission(selectedWorld);
+console.log({ goal: plan.goal, slot: plan.slot,
+  requiredCalls: plan.requiredCalls, delegatedCalls: plan.delegatedCalls });
+
+// Optional: observe validated public updates for 30 seconds without payment credentials.
+for await (const state of reader.watchTesseraWorld('main', AbortSignal.timeout(30_000))) {
+  console.log({ placements: state.world.total_placements, latest: state.recent_activity[0] });
+}
+
 // Payment policy is needed only from this point onward.
 const client = new Scope402Client({
   auditLabUrl: new URL(process.env.AUDITLAB_URL),
@@ -70,13 +86,13 @@ const client = new Scope402Client({
   maxPaymentTinybars: process.env.MAX_PAYMENT_TINYBARS,
 });
 const principal = await client.persistentSubject();
-const prepared = await client.prepareTessera({ subject: principal, slot: 0, canvasId: 'main' });
+const prepared = await client.prepareTessera({ subject: principal, slot: plan.slot, canvasId: 'main' });
 console.log({ amount: prepared.terms.amount, payer: client.config.payer,
   merchant: prepared.terms.payTo, network: prepared.terms.network,
   region: prepared.quote.region, policyHash: prepared.quote.policy_hash });
 ```
 
-This creates or reuses a local P-256 key at `~/.config/scope402/subject.pem`, reads discovery, and obtains/validates a real unpaid 402 quote. The final options select world `main` and territory `0`; omit `slot` to use the first available territory. A safe new lowercase `canvasId` provisionally creates a named world. Abandoned unpaid empty worlds may be reclaimed after their reservation expires, so a quote is not permanent ownership. Prepare once and respect rate limits; do not repeatedly reserve plots to check health. Do not print the entire prepared object or export it into model context.
+This creates or reuses a local P-256 key at `~/.config/scope402/subject.pem`, reads discovery, creates a deterministic mission plan, and obtains/validates a real unpaid 402 quote for the selected open territory. Planning is read-only. A safe new lowercase `canvasId` provisionally creates a named world. Abandoned unpaid empty worlds may be reclaimed after their reservation expires, so a quote is not permanent ownership. Prepare once and respect rate limits; do not repeatedly reserve plots to check health. Do not print the entire prepared object or export it into model context.
 
 ## 3. Approve only after inspecting the terms
 

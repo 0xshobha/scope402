@@ -133,6 +133,36 @@ test('Tessera enforces canvas authority and pixel mutation atomically', async (t
     assert.deepEqual(canvas.reservations, [])
   })
 
+  await t.test('GET /v1/canvas/events streams authoritative world state', async () => {
+    const controller = new AbortController()
+    const response = await app.request('/v1/canvas/events', {
+      headers: { Origin: 'https://scope402.onrender.com' }, signal: controller.signal,
+    })
+    assert.equal(response.status, 200)
+    assert.match(response.headers.get('content-type') ?? '', /^text\/event-stream/)
+    assert.equal(response.headers.get('access-control-allow-origin'), '*')
+    assert.equal(response.headers.get('x-accel-buffering'), 'no')
+    const reader = response.body?.getReader()
+    assert.ok(reader)
+    const chunk = await reader.read()
+    assert.equal(chunk.done, false)
+    const payload = new TextDecoder().decode(chunk.value)
+    assert.match(payload, /event: world/)
+    assert.match(payload, /retry: 5000/)
+    const data = payload.split('\n').find((line) => line.startsWith('data: '))?.slice(6)
+    assert.ok(data)
+    const canvas = JSON.parse(data)
+    assert.equal(canvas.canvas_id, 'main')
+    assert.equal(canvas.width, 32)
+    assert.deepEqual(canvas.pixels, [])
+    controller.abort()
+    await reader.cancel().catch(() => undefined)
+
+    const missing = await app.request('/v1/canvas/missing-world/events')
+    assert.equal(missing.status, 404)
+    assert.equal((await missing.json()).error, 'CANVAS_NOT_FOUND')
+  })
+
   await t.test('an in-scope pixel commits and a fresh counter may repaint it', async () => {
     const issued = await issueRoot()
     const args = { canvas_id: 'main', x: issued.region.x, y: issued.region.y, color: '#7C4DFF' }

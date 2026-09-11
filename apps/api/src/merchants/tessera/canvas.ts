@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import { Hono, type Context } from 'hono'
+import { streamSSE } from 'hono/streaming'
 import { database } from '../../db.js'
 import { TESSERA_PALETTE } from './palette.js'
 import { rootCanvasRegion, parseCanvasId, TESSERA_CANVAS_ID } from './resource.js'
@@ -10,8 +11,7 @@ function agentFingerprint(subjectPubkey: unknown) {
   return `agent:${createHash('sha256').update(String(subjectPubkey)).digest('hex').slice(0, 12)}`
 }
 
-async function canvasResponse(c: Context, rawCanvasId: unknown) {
-  try {
+async function readCanvas(rawCanvasId: unknown) {
     const canvasId = parseCanvasId(rawCanvasId)
     const [canvas, pixels, contributionRows, events, reservations, regions] = await Promise.all([
       database().query(
@@ -65,8 +65,7 @@ async function canvasResponse(c: Context, rawCanvasId: unknown) {
         [canvasId],
       ),
     ])
-    if (canvas.rowCount !== 1) return c.json({ error: 'CANVAS_NOT_FOUND',
-      message: 'This Tessera canvas does not exist' }, 404)
+    if (canvas.rowCount !== 1) return undefined
     const metadata = canvas.rows[0]
     const width = Number(metadata.width)
     const height = Number(metadata.height)
@@ -89,8 +88,7 @@ async function canvasResponse(c: Context, rawCanvasId: unknown) {
       left.agent.localeCompare(right.agent)).slice(0, 10).map((entry) => ({ ...entry,
         current_pixels: ownership.get(entry.agent)?.current_pixels ?? 0 }))
     const totalPlacements = contributions.reduce((total, entry) => total + entry.placements, 0)
-    c.header('Cache-Control', 'no-store')
-    return c.json({ canvas_id: canvasId, width, height, palette: TESSERA_PALETTE,
+    return { canvas_id: canvasId, width, height, palette: TESSERA_PALETTE,
       world: { name: String(metadata.name), painted_pixels: publicPixels.length,
         total_placements: totalPlacements,
         total_pixels: width * height,
@@ -108,12 +106,63 @@ async function canvasResponse(c: Context, rawCanvasId: unknown) {
         ...rootCanvasRegion(Number(row.slot), canvasId), lease_id: String(row.lease_id),
         agent: agentFingerprint(row.subject_pubkey),
         expires_at: Number(row.expires_at), remaining_calls: Number(row.remaining_calls),
-        active: Boolean(row.active), status: row.active ? 'active' : 'expired' })) })
+        active: Boolean(row.active), status: row.active ? 'active' : 'expired' })) }
+}
+
+async function canvasResponse(c: Context, rawCanvasId: unknown) {
+  try {
+    const canvas = await readCanvas(rawCanvasId)
+    if (!canvas) return c.json({ error: 'CANVAS_NOT_FOUND',
+      message: 'This Tessera canvas does not exist' }, 404)
+    c.header('Cache-Control', 'no-store')
+    return c.json(canvas)
   } catch (error) {
     console.error(`Tessera canvas read failed: ${error instanceof Error ? error.message : 'unknown error'}`)
     return c.json({ error: 'CANVAS_UNAVAILABLE', message: 'Canvas state is temporarily unavailable' }, 503)
   }
 }
 
+async function canvasEventsResponse(c: Context, rawCanvasId: unknown) {
+  try {
+    const canvasId = parseCanvasId(rawCanvasId)
+    const initial = await readCanvas(canvasId)
+    if (!initial) return c.json({ error: 'CANVAS_NOT_FOUND',
+      message: 'This Tessera canvas does not exist' }, 404)
+    c.header('X-Accel-Buffering', 'no')
+    return streamSSE(c, async (stream) => {
+      let canvas = initial
+      let lastDigest = ''
+      let heartbeat = 0
+      while (!stream.aborted && !stream.closed) {
+        const data = JSON.stringify(canvas)
+        const digest = createHash('sha256').update(data).digest('hex')
+        if (digest !== lastDigest) {
+          await stream.writeSSE({ event: 'world', id: digest.slice(0, 16), data, retry: 5_000 })
+          lastDigest = digest
+          heartbeat = 0
+        } else if (++heartbeat >= 8) {
+          await stream.writeSSE({ event: 'heartbeat', data: JSON.stringify({ canvas_id: canvasId }) })
+          heartbeat = 0
+        }
+        await stream.sleep(2_000)
+        if (stream.aborted || stream.closed) break
+        const next = await readCanvas(canvasId)
+        if (!next) {
+          await stream.writeSSE({ event: 'error', data: JSON.stringify({ code: 'CANVAS_NOT_FOUND' }) })
+          break
+        }
+        canvas = next
+      }
+    }, async (error) => {
+      console.error(`Tessera canvas stream failed: ${error.message}`)
+    })
+  } catch (error) {
+    console.error(`Tessera canvas stream failed: ${error instanceof Error ? error.message : 'unknown error'}`)
+    return c.json({ error: 'CANVAS_UNAVAILABLE', message: 'Canvas stream is temporarily unavailable' }, 503)
+  }
+}
+
 tesseraCanvas.get('/', (c) => canvasResponse(c, TESSERA_CANVAS_ID))
+tesseraCanvas.get('/events', (c) => canvasEventsResponse(c, TESSERA_CANVAS_ID))
+tesseraCanvas.get('/:canvasId/events', (c) => canvasEventsResponse(c, c.req.param('canvasId')))
 tesseraCanvas.get('/:canvasId', (c) => canvasResponse(c, c.req.param('canvasId')))
