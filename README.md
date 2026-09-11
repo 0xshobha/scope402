@@ -189,9 +189,11 @@ charging for every call or exposing a broad bearer credential:
 - player-selected Tessera pixels and palette colors signed by the guarded principal agent, with idempotent retries
   and server-enforced region and call-budget limits
 
-### Interactive Tessera expansion in this checkout
+### Interactive Tessera agent world
 
-The following features are implemented and locally verified but are not presented as deployed public proof yet:
+The public API exposes the world catalogue and server-authoritative state. The purchase, delegation, and
+painting paths below are implemented and tested; the public-proof section separately identifies the exact
+paid runs that were exercised on Hedera rather than treating deployment alone as payment evidence:
 
 - multiple isolated `32 × 32` worlds with safe, shareable slugs and a bounded public-world limit
 - abandoned unpaid empty worlds are reclaimed after quote expiry, so quote spam cannot permanently consume that limit
@@ -205,6 +207,7 @@ The following features are implemented and locally verified but are not presente
 - synchronized discovery, OpenAPI, and agent quickstart coverage for named worlds and exact territory selection
 - a local TypeScript reference SDK for typed world discovery, world-state reads, prepare-before-pay purchases,
   exact policy validation, root painting, strict worker attenuation, serialized counters, and idempotent agent retries
+- a read-only CLI that lets another process list or inspect public worlds without Hedera credentials
 - a guarded autonomous-agent example that stops after showing the quote unless payment is explicitly enabled
 
 No wallet connection, ENS identity, HCS audit trail, free-form browser signing, or on-chain pixel storage is
@@ -229,6 +232,16 @@ The hosted agent exposes opaque `/demo/runs` and `/tessera/runs` orchestration r
 agents do not need that wrapper. The local `@scope402/agent` package exports a TypeScript SDK with the same explicit prepare, approve,
 invoke, and delegate flow, while the OpenAPI and signing contract remain the language-neutral integration surface.
 The SDK is a tested local package in this checkout and is not claimed as published on npm.
+
+After building, any external agent or operator can inspect the deployed world without payment credentials:
+
+```bash
+node apps/agent/dist/cli.js worlds
+node apps/agent/dist/cli.js world main
+```
+
+These commands validate the public response and emit machine-readable JSON. They never create a quote,
+reserve territory, or move HBAR.
 
 AuditLab exposes `finding_details`; Tessera exposes `place_pixel`. Both have public payment-to-denial proof,
 with exact transactions and outcomes recorded below.
