@@ -21,6 +21,17 @@ console.log(worlds, opal.world.painted_pixels)
 Payer, merchant, and spending-limit configuration is required only when preparing paid work.
 The client rejects a purchase locally before making a request if any of those policy fields is absent.
 
+The repository-local CLI exposes the same validated read-only path:
+
+```bash
+corepack pnpm --filter @scope402/agent build
+node apps/agent/dist/cli.js worlds
+node apps/agent/dist/cli.js world main
+```
+
+Both commands return machine-readable JSON and never prepare a quote or move HBAR. Use `--api`
+to inspect another compatible HTTPS deployment or a local development server.
+
 ```ts
 import { Scope402Client, ephemeralSubject } from '@scope402/agent'
 

@@ -20,8 +20,12 @@
       "import": "./dist/sdk.js"
     }
   },
+  "bin": {
+    "scope402": "./dist/cli.js"
+  },
   "files": [
     "dist/canonical.*",
+    "dist/cli.*",
     "dist/discovery.*",
     "dist/payment-client.*",
     "dist/policy.*",
