@@ -2,13 +2,19 @@
   "name": "scope402",
   "private": true,
   "packageManager": "pnpm@11.25.0",
-  "engines": { "node": ">=22" },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "dotenv": "^8.2.0",
+    "node-fetch": "^3.3.2"
+  },
   "scripts": {
     "check:402": "corepack pnpm --filter @scope402/api check:402",
     "check:blocky": "corepack pnpm --filter @scope402/api check:blocky",
-    "dev": "corepack pnpm --filter @scope402/api dev",
-    "build": "corepack pnpm -r build",
-    "start": "corepack pnpm --filter @scope402/api start",
+    "dev": "node init && corepack pnpm --filter @scope402/api dev",
+    "build": "node init && corepack pnpm -r build",
+    "start": "node init && corepack pnpm --filter @scope402/api start",
     "typecheck": "corepack pnpm -r typecheck",
     "test": "corepack pnpm -r test && bash scripts/run-api-integration-tests.sh"
   }

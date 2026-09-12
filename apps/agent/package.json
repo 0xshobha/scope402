@@ -38,10 +38,10 @@
     "README.md"
   ],
   "scripts": {
-    "build": "tsc",
+    "build": "node init && tsc",
     "demo": "node --env-file-if-exists=.env dist/demo-server.js",
-    "dev:demo": "tsx watch --env-file-if-exists=.env src/demo-server.ts",
-    "start": "node --env-file-if-exists=.env dist/index.js",
+    "dev:demo": "node init && tsx watch --env-file-if-exists=.env src/demo-server.ts",
+    "start": "node init && node --env-file-if-exists=.env dist/index.js",
     "typecheck": "tsc --noEmit && tsc --project tsconfig.test.json",
     "test": "tsx --test test/*.test.ts"
   },
