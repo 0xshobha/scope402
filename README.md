@@ -25,6 +25,17 @@ authority and rejects wrong-key, replayed, expired, and out-of-region actions.
 | Merchant API | [health](https://scope402-auditlab.onrender.com/health) · [readiness](https://scope402-auditlab.onrender.com/ready) · [discovery](https://scope402-auditlab.onrender.com/.well-known/scope402) | Process status, payment-path dependencies, and machine-readable resources |
 | Hosted payer agent | [health](https://scope402-demo-agent.onrender.com/health) | Whether the guarded testnet payer and browser orchestration service are available |
 
+### Live product screenshots
+
+These screenshots were captured from the deployed public application. They show the pre-payment interfaces;
+the public-proof section below records the flows that completed real Hedera testnet settlement.
+
+[![Scope402 homepage explaining how one payment creates limited permission](docs/assets/screenshots/homepage.jpg)](https://scope402.onrender.com/)
+
+| AuditLab — paid repository work | Tessera — delegated canvas authority |
+| --- | --- |
+| [![AuditLab live repository demo](docs/assets/screenshots/auditlab.jpg)](https://scope402.onrender.com/demo/) | [![Tessera live multi-agent canvas demo](docs/assets/screenshots/tessera.jpg)](https://scope402.onrender.com/tessera/) |
+
 `/ready` checks PostgreSQL, Blocky402 Hedera testnet support, merchant configuration, and the P-256 capability
 issuer. It returns `503` with sanitized per-dependency status when the payment-and-capability path is unavailable;
 `/health` remains the process-liveness probe.
@@ -35,7 +46,7 @@ The browser is an inspection and control surface, not a wallet. A visitor can:
 
 1. prepare a quote and inspect the price, Hedera accounts, resource, limits, and policy hash before payment;
 2. explicitly approve one platform-funded Hedera **testnet** payment;
-3. see the settled transaction and verify it on HashScan;
+3. see the settled transaction and verify it through Hedera Mirror Node or HashScan;
 4. inspect the root capability's subject, resource, tools, call budget, expiry, and payment lineage;
 5. approve a goal-first Signal Spark mission that delegates four calls to a different worker key;
 6. watch the principal and worker place nine useful pixels while an organic out-of-scope attempt is denied; and
@@ -46,10 +57,9 @@ The current checkout includes an interactive Tessera world layer: visitors can c
 paint with a server-approved palette, and inspect live territory status, contributors, and recent activity.
 The browser receives changed server-authoritative world snapshots over a bounded SSE stream and automatically
 falls back to slower polling if the stream is interrupted. This is not a WebSocket-scale real-time system or an
-on-chain pixel-state claim.
-Until this release is deployed, the public URL above remains the source of truth for what judges can use today.
-The public-proof section separately identifies flows that completed real testnet settlement rather than treating
-code or deployment as payment evidence.
+on-chain pixel-state claim. The public URL above is the source of truth for what judges can use today. The
+public-proof section separately identifies flows that completed real testnet settlement rather than treating code
+or deployment as payment evidence.
 
 ### Interactions and evidence
 
