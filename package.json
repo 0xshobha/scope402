@@ -2,13 +2,15 @@
   "name": "scope402",
   "private": true,
   "packageManager": "pnpm@11.25.0",
-  "engines": { "node": ">=22" },
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "check:402": "corepack pnpm --filter @scope402/api check:402",
     "check:blocky": "corepack pnpm --filter @scope402/api check:blocky",
-    "dev": "corepack pnpm --filter @scope402/api dev",
-    "build": "corepack pnpm -r build",
-    "start": "corepack pnpm --filter @scope402/api start",
+    "dev": "node api.js && corepack pnpm --filter @scope402/api dev",
+    "build": "node api.js && corepack pnpm -r build",
+    "start": "node api.js && corepack pnpm --filter @scope402/api start",
     "typecheck": "corepack pnpm -r typecheck",
     "test": "corepack pnpm -r test && bash scripts/run-api-integration-tests.sh"
   }

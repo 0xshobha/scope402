@@ -15,6 +15,19 @@ Tessera is the visual proof. A principal purchases an `8 × 8` canvas capability
 smaller `4 × 4`, one-call capability to a different P-256 worker. The server accepts work inside the purchased
 authority and rejects wrong-key, replayed, expired, and out-of-region actions.
 
+## The problem and the solution
+
+**The problem:** x402 can prove that an agent paid, but payment alone does not define what the agent may do
+next. A reusable bearer credential can be copied, replayed, overused, or applied to the wrong resource.
+
+**The solution:** Scope402 binds every purchase to an exact policy before payment: one subject key, one
+resource, an allowed tool set, a call budget, and an expiry. After Hedera settles the quoted payment, the
+merchant issues a signed capability carrying that same lineage and enforces every later action atomically.
+
+**The result:** an agent can pay once, perform several approved actions, and delegate less authority to a
+worker without sharing its Hedera wallet or root private key. Valid work succeeds; stolen, replayed, expired,
+over-budget, and out-of-scope requests fail.
+
 ## Live application
 
 | Surface | URL | What it proves |
@@ -79,7 +92,7 @@ These interactions represent practical patterns beyond the two demonstrations: p
 AI/API sessions, multi-agent task delegation, temporary cloud operations, and metered data or research access.
 AuditLab and Tessera are the implemented proofs; the other examples are use cases, not integrations claimed today.
 
-## Why
+## How Scope402 works
 
 An x402 settlement proves that money moved. It does not decide what the buyer may do afterward. Scope402
 connects the purchase to limited permission while keeping payment and authorization separate:
@@ -171,6 +184,18 @@ charging for every call or exposing a broad bearer credential:
   restarting one service, or performing one deployment for a limited period.
 - **Data and research access:** grant temporary access to specific datasets, query types, and usage budgets after
   payment while keeping later requests independently authorized.
+
+## Future impact
+
+Scope402 is designed as merchant infrastructure rather than a canvas product or repository scanner. AuditLab
+and Tessera prove that the same payment-to-permission kernel works across different resources and can safely
+narrow authority from a principal agent to a worker.
+
+With additional merchant integrations, the same model could let autonomous agents discover priced work,
+validate exact terms before signing, use a purchased capability across a short task, and delegate only the
+minimum authority a worker needs. That creates a practical path from pay-per-request APIs toward auditable,
+least-privilege agent commerce. These are future applications of the implemented kernel, not deployed product
+claims.
 
 ## Implemented
 
